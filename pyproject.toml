@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "heygen-mcp"
 version = "0.0.1"
-description = "HeyGen MCP Server for AI Video Creation."
+description = "HeyGen MCP Server for AI Video Creation"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -9,11 +13,19 @@ authors = [
     { name = "Eddy Kim", email = "eddy@heygen.com" },
 ]
 keywords = ["heygen", "mcp", "claude", "ai", "video", "avatar"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 
 dependencies = [
     "mcp[cli]>=1.6.0",
     "pydantic>=2.0.0",
-    "requests>=2.32.3",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
@@ -27,6 +39,22 @@ heygen-mcp = "heygen_mcp.server:main"
 dev = [
     "pytest",
     "pytest-asyncio",
-    "respx",
     "ruff",
+    "build",
+    "twine",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.uv]
+# The commands subsection is not valid in tool.uv
+# The entry point is already defined in [project.scripts]

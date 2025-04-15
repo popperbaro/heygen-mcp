@@ -1,8 +1,10 @@
-# Heygen MCP Server
+# Heygen MCP Server ALPHA
 
 A MCP (Model Control Protocol) server providing tools to interact with the Heygen API (V1 & V2), compatible with Claude Desktop and usable as a Python library.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Note: This project is in early development. While we welcome community feedback and contributions, please be aware that official support is limited.
 
 ## Features
 
@@ -15,74 +17,67 @@ A MCP (Model Control Protocol) server providing tools to interact with the Heyge
   - Check Video Status
 - Configurable Heygen API key via command-line or environment variable (`HEYGEN_API_KEY`).
 - Asynchronous API client using `httpx` and `pydantic`.
-- Command-line interface powered by `click`.
+- Command-line interface for starting the server.
 - Designed for use with Claude Desktop extensions.
 - Can be imported and used as a Python library.
+- Available as a UV tool - run with `uvx heygen-mcp`
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.12 or higher
-- A Heygen API key (get one from [Heygen](https://www.heygen.com/))
+- Python 3.10 or higher
+- A Heygen API key (get one from [Heygen](https://www.heygen.com/)). Includes 10 Free Credits per Month
 
-### From GitHub (Currently Not on PyPI)
+### Installing uv
+
+uv is a fast Python package installer and resolver that we recommend for installing this package.
+
+**macOS or Linux:**
 
 ```bash
-# Install directly from GitHub
-pip install git+https://github.com/your-username/heygen-mcp.git
+# Install with the official installer script
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Alternatively, clone and install
-git clone https://github.com/your-username/heygen-mcp.git
-cd heygen-mcp
-pip install .
+# Or via Homebrew (macOS)
+brew install uv
 ```
 
-### For Development
+**Windows:**
 
-1.  Clone this repository:
+```powershell
+# Install with the official installer script in PowerShell
+irm https://astral.sh/uv/install.ps1 | iex
 
-    ```bash
-    git clone https://github.com/your-username/heygen-mcp.git
-    cd heygen-mcp
-    ```
+# Or via Scoop
+scoop install uv
+```
 
-2.  Install in editable mode:
-    ```bash
-    # Installs the package and dev dependencies
-    pip install -e ".[dev]"
-    ```
+For other installation methods, see the [uv documentation](https://github.com/astral-sh/uv).
 
 ## Usage
 
-### Command-Line Interface (CLI)
+### Quickstart with Claude Desktop
 
-The package installs a command-line script `heygen-mcp`.
+1. Get your API key from [HeyGen](https://www.heygen.com/).
+2. Install uv package manager (see [Installing uv](#installing-uv) section above).
+3. Go to Claude > Settings > Developer > Edit Config > `claude_desktop_config.json` to include the following:
 
-```bash
-# Start the server (requires API key)
-
-# Option 1: Pass key via argument
-heygen-mcp --api-key YOUR_API_KEY
-
-# Option 2: Use environment variable (recommended)
-export HEYGEN_API_KEY=YOUR_API_KEY
-heygen-mcp
+```json
+{
+  "mcpServers": {
+    "HeyGen": {
+      "command": "uvx",
+      "args": ["heygen-mcp"],
+      "env": {
+        "HEYGEN_API_KEY": "<insert-your-api-key-here>"
+      }
+    }
+  }
+}
 ```
 
-The server will start on `http://localhost:8000` by default.
-
-### Setting up with Claude Desktop
-
-1.  Start the `heygen-mcp` server using one of the methods above.
-2.  Open Claude Desktop.
-3.  Go to `Settings > Extensions`.
-4.  Click `Add MCP Server`.
-5.  Enter a **Name** (e.g., "Heygen Video Tools").
-6.  Enter the **URL** (typically `http://127.0.0.1:8000` or `http://localhost:8000`).
-7.  Save and enable the extension.
-
-Claude should now connect, and the Heygen tools will be available.
+If you're using Windows, you'll need to enable "Developer Mode" in Claude Desktop to use the MCP server. Click "Help" in the hamburger menu at the top left and select "Enable Developer Mode".
 
 ### Available MCP Tools
 
@@ -95,50 +90,32 @@ The server provides the following tools to Claude:
 - **generate_avatar_video**: Generates a new avatar video with the specified avatar, text, and voice.
 - **get_avatar_video_status**: Retrieves the status of a video generated via the Heygen API.
 
-### Programmatic Usage (Python Library)
-
-You can also import the API client or even the MCP application instance:
-
-```python
-import asyncio
-from heygen_mcp import HeygenAPIClient, mcp # Import client and MCP app
-
-async def example_usage():
-    api_key = "YOUR_API_KEY" # Load securely!
-    client = HeygenAPIClient(api_key)
-
-    try:
-        # Get remaining credits
-        credits = await client.get_remaining_credits()
-        print(f"Remaining credits: {credits.remaining_credits}")
-
-        # Get available voices
-        voices = await client.get_voices()
-        if voices.voices:
-            print(f"First voice: {voices.voices[0].name}")
-
-        # List avatar groups
-        groups = await client.list_avatar_groups()
-        if groups.avatar_groups:
-            group_id = groups.avatar_groups[0].id
-            print(f"First group: {groups.avatar_groups[0].name}")
-
-            # Get avatars in the group
-            avatars = await client.get_avatars_in_group(group_id)
-            if avatars.avatars:
-                print(f"First avatar: {avatars.avatars[0].avatar_name}")
-
-    finally:
-        await client.close()
-
-# Run the example
-# asyncio.run(example_usage())
-```
-
 ## Development
 
-- **Adding Tools:** Modify `server.py` to add or change MCP tools/resources.
-- **API Client:** Update the `HeyGenApiClient` class for new API endpoints or model changes.
-- **Dependencies:** Use `pip install -e ".[dev]"` to install for development.
-- **Testing:** Run tests using `pytest`.
-- **Linting/Formatting:** Use `ruff check .` and `ruff format .`.
+### Running with MCP Inspector
+
+To run the server locally with the MCP Inspector for testing and debugging:
+
+```bash
+uv --with "mcp[cli]" dev heygen_mcp/server.py
+```
+
+This will start the server in development mode and allow you to use the MCP Inspector to test the available tools and functionality.
+
+## Roadmap
+
+- [ ] Tests
+- [ ] CICD
+- [ ] Photo Avatar APIs Support
+- [ ] SSE And Remote MCP Server with OAuth Flow
+- [ ] Translation API Support
+- [ ] Template API Support
+- [ ] Interactive Avatar API Support
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

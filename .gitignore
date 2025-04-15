@@ -40,3 +40,4 @@ venv.bak/
 
 # Local development
 .DS_Store
+.ruff_cache/
