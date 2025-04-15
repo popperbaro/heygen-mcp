@@ -1,0 +1,32 @@
+[project]
+name = "heygen-mcp"
+version = "0.0.1"
+description = "HeyGen MCP Server for AI Video Creation."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    { name = "Eddy Kim", email = "eddy@heygen.com" },
+]
+keywords = ["heygen", "mcp", "claude", "ai", "video", "avatar"]
+
+dependencies = [
+    "mcp[cli]>=1.6.0",
+    "pydantic>=2.0.0",
+    "requests>=2.32.3",
+]
+
+[project.scripts]
+heygen-mcp = "heygen_mcp.server:main"
+
+[project.urls]
+"Homepage" = "https://github.com/heygen-com/heygen-mcp"
+"Bug Tracker" = "https://github.com/heygen-com/heygen-mcp/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "ruff",
+]
