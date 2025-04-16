@@ -1,26 +1,12 @@
-# Heygen MCP Server ALPHA
+# Heygen MCP Server
 
-A MCP (Model Control Protocol) server providing tools to interact with the Heygen API (V1 & V2), compatible with Claude Desktop and usable as a Python library.
+![Heygen Logo](https://files.readme.io/cfe89b99576b58ffc0eff1d7774dfe123e10a143f2db69270ecaab7ea4b9faf5-small-Logo_5.png)
+
+The HeyGen MCP server enables any MCP Client like Claude Desktop or Agents to use the [HeyGen API](https://docs.heygen.com/) to generate avatars and videos.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Note: This project is in early development. While we welcome community feedback and contributions, please be aware that official support is limited.
-
-## Features
-
-- Provides MCP tools for Heygen API actions:
-  - Get Remaining Credits
-  - List Voices
-  - List Avatar Groups
-  - List Avatars in a Group
-  - Generate Avatar Video
-  - Check Video Status
-- Configurable Heygen API key via command-line or environment variable (`HEYGEN_API_KEY`).
-- Asynchronous API client using `httpx` and `pydantic`.
-- Command-line interface for starting the server.
-- Designed for use with Claude Desktop extensions.
-- Can be imported and used as a Python library.
-- Available as a UV tool - run with `uvx heygen-mcp`
 
 ## Installation
 

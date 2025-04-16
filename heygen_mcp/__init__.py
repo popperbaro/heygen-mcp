@@ -1,6 +1,6 @@
 """HeyGen MCP - API client and MCP server for HeyGen API interaction."""
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 from heygen_mcp.api_client import HeyGenApiClient
 from heygen_mcp.server import main, mcp
