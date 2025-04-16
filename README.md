@@ -1,6 +1,6 @@
 # Heygen MCP Server
 
-![Heygen Logo](https://files.readme.io/cfe89b99576b58ffc0eff1d7774dfe123e10a143f2db69270ecaab7ea4b9faf5-small-Logo_5.png)
+![Heygen Logo](heygen_logo.png)
 
 The HeyGen MCP server enables any MCP Client like Claude Desktop or Agents to use the [HeyGen API](https://docs.heygen.com/) to generate avatars and videos.
 
