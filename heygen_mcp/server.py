@@ -199,12 +199,7 @@ def main():
         )
         sys.exit(1)
 
-    # Start the server
-    mcp.start_server(
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-    )
+    mcp.run()
 
 
 if __name__ == "__main__":
