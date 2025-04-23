@@ -6,9 +6,20 @@ import requests
 import traceback
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, StringVar
 from typing import Dict, Any, List, Optional
+import pickle
+import re
 
+# Các đường dẫn lưu cấu hình
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".heygen_avatar_creator")
+API_KEY_FILE = os.path.join(CONFIG_DIR, "api_key.txt")
+AVATARS_CACHE_FILE = os.path.join(CONFIG_DIR, "avatars_cache.pkl")
+WINDOW_CONFIG_FILE = os.path.join(CONFIG_DIR, "window_config.json")
+SELECTED_AVATAR_FILE = os.path.join(CONFIG_DIR, "selected_avatar.txt")
+
+# Đảm bảo thư mục cấu hình tồn tại
+os.makedirs(CONFIG_DIR, exist_ok=True)
 
 class HeyGenClient:
     """
@@ -245,17 +256,115 @@ class HeyGenVideoCreatorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("HeyGen Avatar Video Creator")
-        self.root.geometry("800x600")
+        
+        # Khởi tạo kích thước cửa sổ mặc định
+        self.root.geometry("800x950")
         self.root.minsize(800, 600)
         
-        self.client = HeyGenClient()
+        # Đọc cấu hình cửa sổ từ lần chạy trước (nếu có)
+        self.load_window_config()
+        
+        # Đọc API key từ file (nếu có)
+        api_key = self.load_api_key()
+        
+        self.client = HeyGenClient(api_key)
         self.avatars = []
-        self.selected_avatar_id = None
+        
+        # Khởi tạo ID avatar được chọn
+        self.selected_avatar_id = self.load_selected_avatar()
         self.audio_file_path = None
         self.audio_asset_id = None
         
+        # Biến cho chức năng tìm kiếm
+        self.search_var = StringVar()
+        self.search_var.trace_add("write", self.filter_avatars)
+        
         self.create_ui()
         
+        # Đọc cache avatars nếu có
+        self.load_avatars_cache()
+        
+        # Đăng ký sự kiện khi đóng cửa sổ
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def load_api_key(self):
+        """Đọc API key từ file nếu có"""
+        try:
+            if os.path.exists(API_KEY_FILE):
+                with open(API_KEY_FILE, 'r') as f:
+                    api_key = f.read().strip()
+                    if api_key:
+                        return api_key
+        except Exception as e:
+            print(f"Lỗi khi đọc API key: {e}")
+        return None
+    
+    def save_api_key(self, api_key):
+        """Lưu API key vào file"""
+        try:
+            with open(API_KEY_FILE, 'w') as f:
+                f.write(api_key)
+            print(f"Đã lưu API key")
+        except Exception as e:
+            print(f"Lỗi khi lưu API key: {e}")
+    
+    def load_avatars_cache(self):
+        """Đọc danh sách avatars từ cache nếu có"""
+        try:
+            if os.path.exists(AVATARS_CACHE_FILE):
+                with open(AVATARS_CACHE_FILE, 'rb') as f:
+                    self.avatars = pickle.load(f)
+                    if self.avatars:
+                        self.update_status(f"Đã tải {len(self.avatars)} avatars từ cache")
+                        self.populate_avatars_tree(self.avatars)
+        except Exception as e:
+            print(f"Lỗi khi đọc cache avatars: {e}")
+    
+    def save_avatars_cache(self):
+        """Lưu danh sách avatars vào cache"""
+        try:
+            if self.avatars:
+                with open(AVATARS_CACHE_FILE, 'wb') as f:
+                    pickle.dump(self.avatars, f)
+                print(f"Đã lưu {len(self.avatars)} avatars vào cache")
+        except Exception as e:
+            print(f"Lỗi khi lưu cache avatars: {e}")
+    
+    def load_window_config(self):
+        """Đọc cấu hình cửa sổ từ file nếu có"""
+        try:
+            if os.path.exists(WINDOW_CONFIG_FILE):
+                with open(WINDOW_CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+                    if 'geometry' in config:
+                        self.root.geometry(config['geometry'])
+                    print(f"Đã tải cấu hình cửa sổ: {config['geometry']}")
+        except Exception as e:
+            print(f"Lỗi khi đọc cấu hình cửa sổ: {e}")
+    
+    def save_window_config(self):
+        """Lưu cấu hình cửa sổ vào file"""
+        try:
+            config = {
+                'geometry': self.root.geometry()
+            }
+            with open(WINDOW_CONFIG_FILE, 'w') as f:
+                json.dump(config, f)
+            print(f"Đã lưu cấu hình cửa sổ: {config['geometry']}")
+        except Exception as e:
+            print(f"Lỗi khi lưu cấu hình cửa sổ: {e}")
+    
+    def on_closing(self):
+        """Xử lý sự kiện khi đóng cửa sổ"""
+        # Lưu cấu hình cửa sổ
+        self.save_window_config()
+        
+        # Lưu avatar đã chọn
+        if self.selected_avatar_id:
+            self.save_selected_avatar(self.selected_avatar_id)
+            
+        self.root.destroy()
+    
     def create_ui(self):
         # Tạo frame chính
         main_frame = ttk.Frame(self.root, padding="10")
@@ -298,8 +407,19 @@ class HeyGenVideoCreatorApp:
         avatars_frame = ttk.LabelFrame(parent_frame, text="Danh sách Avatars", padding="5")
         avatars_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # Thêm frame tìm kiếm avatar
+        search_frame = ttk.Frame(avatars_frame)
+        search_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(search_frame, text="Tìm kiếm:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(search_frame, textvariable=self.search_var, width=30).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(search_frame, text="Xóa", command=self.clear_search).pack(side=tk.LEFT, padx=5)
+        
+        buttons_frame = ttk.Frame(avatars_frame)
+        buttons_frame.pack(fill=tk.X, padx=5, pady=5)
+        
         # Nút tải danh sách avatars
-        ttk.Button(avatars_frame, text="Tải danh sách avatars", command=self.load_avatars).pack(anchor=tk.W, padx=5, pady=5)
+        ttk.Button(buttons_frame, text="Tải danh sách avatars", command=self.load_avatars).pack(side=tk.LEFT, padx=5)
         
         # Tạo Treeview để hiển thị avatars
         columns = ("id", "name", "gender", "premium")
@@ -465,7 +585,9 @@ class HeyGenVideoCreatorApp:
                 "content-type": "application/json",
                 "x-api-key": api_key
             }
-            self.update_status(f"Đã cập nhật API Key: {api_key[:5]}...{api_key[-5:]} (ẩn giữa để bảo mật)")
+            # Lưu API key vào file
+            self.save_api_key(api_key)
+            self.update_status(f"Đã cập nhật và lưu API Key: {api_key[:5]}...{api_key[-5:]} (ẩn giữa để bảo mật)")
         else:
             messagebox.showerror("Lỗi", "API Key không được để trống")
             
@@ -544,7 +666,9 @@ class HeyGenVideoCreatorApp:
             
             if avatars_data:
                 self.avatars = avatars_data
-                self.process_avatars(avatars_data)
+                self.populate_avatars_tree(avatars_data)
+                # Lưu danh sách avatars vào cache
+                self.save_avatars_cache()
                 success = True
             else:
                 self.update_status("Không tìm thấy avatar nào")
@@ -554,7 +678,9 @@ class HeyGenVideoCreatorApp:
             
             if avatars_data:
                 self.avatars = avatars_data
-                self.process_avatars_alternative(avatars_data)
+                self.populate_avatars_tree_alternative(avatars_data)
+                # Lưu danh sách avatars vào cache
+                self.save_avatars_cache()
                 success = True
             else:
                 self.update_status("Không tìm thấy avatar nào")
@@ -567,7 +693,7 @@ class HeyGenVideoCreatorApp:
             self.update_status(error_msg)
             messagebox.showerror("Lỗi", error_msg)
     
-    def process_avatars(self, avatars_data):
+    def populate_avatars_tree(self, avatars_data):
         """Xử lý danh sách avatars với cấu trúc dữ liệu chuẩn"""
         for avatar in avatars_data:
             self.avatars_tree.insert("", tk.END, values=(
@@ -577,8 +703,16 @@ class HeyGenVideoCreatorApp:
                 "Có" if avatar.get("premium", False) else "Không"
             ))
         self.update_status(f"Đã tải {len(avatars_data)} avatars")
+        
+        # Áp dụng bộ lọc tìm kiếm nếu có
+        if self.search_var.get():
+            self.filter_avatars()
+            
+        # Tự động chọn avatar đã lưu trước đó
+        if self.selected_avatar_id:
+            self.root.after(100, lambda: self.select_avatar_by_id(self.selected_avatar_id))
     
-    def process_avatars_alternative(self, avatars_data):
+    def populate_avatars_tree_alternative(self, avatars_data):
         """Xử lý danh sách avatars với cấu trúc dữ liệu thay thế"""
         for avatar in avatars_data:
             # Kiểm tra xem dữ liệu có các trường cần thiết không
@@ -595,6 +729,53 @@ class HeyGenVideoCreatorApp:
                 "Có" if avatar.get("premium", False) else "Không"
             ))
         self.update_status(f"Đã tải {len(avatars_data)} avatars")
+        
+        # Áp dụng bộ lọc tìm kiếm nếu có
+        if self.search_var.get():
+            self.filter_avatars()
+            
+        # Tự động chọn avatar đã lưu trước đó
+        if self.selected_avatar_id:
+            self.root.after(100, lambda: self.select_avatar_by_id(self.selected_avatar_id))
+    
+    def filter_avatars(self, *args):
+        """Lọc danh sách avatars theo từ khóa tìm kiếm"""
+        search_term = self.search_var.get().lower()
+        
+        # Xóa tất cả các mục hiện tại
+        for item in self.avatars_tree.get_children():
+            self.avatars_tree.delete(item)
+        
+        # Nếu không có từ khóa tìm kiếm, hiển thị tất cả
+        if not search_term:
+            if "avatar_id" in self.avatars[0] if self.avatars else False:
+                self.populate_avatars_tree(self.avatars)
+            else:
+                self.populate_avatars_tree_alternative(self.avatars)
+            return
+        
+        # Lọc avatars theo từ khóa
+        filtered_avatars = []
+        for avatar in self.avatars:
+            avatar_id = avatar.get("avatar_id") or avatar.get("id", "")
+            avatar_name = avatar.get("avatar_name") or avatar.get("name", "")
+            
+            if (avatar_id.lower().find(search_term) != -1 or 
+                avatar_name.lower().find(search_term) != -1):
+                filtered_avatars.append(avatar)
+        
+        # Hiển thị avatars đã lọc
+        if "avatar_id" in self.avatars[0] if self.avatars else False:
+            self.populate_avatars_tree(filtered_avatars)
+        else:
+            self.populate_avatars_tree_alternative(filtered_avatars)
+        
+        self.update_status(f"Tìm thấy {len(filtered_avatars)} avatar khớp với từ khóa: {search_term}")
+    
+    def clear_search(self):
+        """Xóa từ khóa tìm kiếm"""
+        self.search_var.set("")
+        # filter_avatars sẽ được gọi tự động thông qua trace_add
     
     def on_avatar_selected(self, event):
         selection = self.avatars_tree.selection()
@@ -602,10 +783,36 @@ class HeyGenVideoCreatorApp:
             item = selection[0]
             avatar_id = self.avatars_tree.item(item, "values")[0]
             self.selected_avatar_id = avatar_id
+            # Lưu avatar đã chọn
+            self.save_selected_avatar(avatar_id)
             self.update_status(f"Đã chọn avatar: {avatar_id}")
             
             # Cập nhật trạng thái nút tạo video
             self.update_create_button_state()
+    
+    def select_avatar_by_id(self, avatar_id):
+        """Chọn avatar trong danh sách dựa vào ID"""
+        # Nếu không có dữ liệu avatars, không thể chọn
+        if not self.avatars or not self.avatars_tree.get_children():
+            return False
+        
+        # Duyệt qua tất cả các mục trong tree để tìm avatar_id
+        for item in self.avatars_tree.get_children():
+            current_id = self.avatars_tree.item(item, "values")[0]
+            if current_id == avatar_id:
+                # Chọn item này
+                self.avatars_tree.selection_set(item)
+                # Đảm bảo item được hiển thị trong view
+                self.avatars_tree.see(item)
+                # Cập nhật selected_avatar_id
+                self.selected_avatar_id = avatar_id
+                self.update_status(f"Đã chọn avatar: {avatar_id}")
+                self.update_create_button_state()
+                return True
+        
+        # Nếu không tìm thấy, hiển thị thông báo
+        self.update_status(f"Không tìm thấy avatar với ID: {avatar_id}")
+        return False
     
     def select_audio_file(self):
         file_path = filedialog.askopenfilename(
@@ -814,8 +1021,11 @@ class HeyGenVideoCreatorApp:
                     video_id = video_data["data"]["video_id"]
                     self.update_status(f"Video đang được tạo với ID: {video_id}")
                     
+                    # Lấy tên file âm thanh để đặt tên cho video (không bao gồm phần mở rộng)
+                    audio_filename = os.path.splitext(os.path.basename(self.audio_file_path))[0] if self.audio_file_path else None
+                    
                     # Bắt đầu kiểm tra trạng thái video
-                    self.root.after(100, lambda: self.check_video_status(video_id))
+                    self.root.after(100, lambda: self.check_video_status(video_id, audio_filename=audio_filename))
                 else:
                     error_msg = "Không thể tạo video: Không tìm thấy video_id trong phản hồi"
                     if isinstance(video_data, dict):
@@ -847,7 +1057,7 @@ class HeyGenVideoCreatorApp:
             messagebox.showerror("Lỗi", error_msg)
             self.create_btn.configure(state="normal")
     
-    def check_video_status(self, video_id, attempt=0, max_attempts=180):
+    def check_video_status(self, video_id, attempt=0, max_attempts=180, audio_filename=None):
         if attempt >= max_attempts:
             self.update_status("Đã hết thời gian chờ xử lý video")
             messagebox.showerror("Lỗi", "Đã hết thời gian chờ xử lý video")
@@ -904,11 +1114,15 @@ class HeyGenVideoCreatorApp:
                         download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
                         if download:
                             try:
-                                # Mở hộp thoại lưu file
+                                # Tạo tên file mặc định từ tên file âm thanh nếu có
+                                default_filename = f"{audio_filename}.mp4" if audio_filename else f"heygen_video_{video_id}.mp4"
+                                
+                                # Mở hộp thoại lưu file với tên mặc định
                                 file_path = filedialog.asksaveasfilename(
                                     defaultextension=".mp4",
                                     filetypes=[("MP4 files", "*.mp4")],
-                                    title="Lưu video"
+                                    title="Lưu video",
+                                    initialfile=default_filename
                                 )
                                 
                                 if file_path:
@@ -1114,6 +1328,30 @@ class HeyGenVideoCreatorApp:
             self.update_status("Đã sao chép URL video vào clipboard")
         else:
             self.update_status("Không có URL để sao chép")
+    
+    def load_selected_avatar(self):
+        """Đọc avatar đã chọn từ lần trước, nếu không có thì dùng mặc định"""
+        try:
+            if os.path.exists(SELECTED_AVATAR_FILE):
+                with open(SELECTED_AVATAR_FILE, 'r') as f:
+                    avatar_id = f.read().strip()
+                    if avatar_id:
+                        print(f"Đã tải avatar đã chọn: {avatar_id}")
+                        return avatar_id
+        except Exception as e:
+            print(f"Lỗi khi đọc avatar đã chọn: {e}")
+        
+        # Trả về avatar mặc định
+        return "Conrad_standing_house_front"
+    
+    def save_selected_avatar(self, avatar_id):
+        """Lưu avatar đã chọn vào file"""
+        try:
+            with open(SELECTED_AVATAR_FILE, 'w') as f:
+                f.write(avatar_id)
+            print(f"Đã lưu avatar đã chọn: {avatar_id}")
+        except Exception as e:
+            print(f"Lỗi khi lưu avatar đã chọn: {e}")
 
 
 if __name__ == "__main__":
