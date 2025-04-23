@@ -898,10 +898,13 @@ class HeyGenVideoCreatorApp:
                         
                         upload_success_msg = f"Đã upload file thành công. Asset ID: {self.audio_asset_id}"
                         self.update_status(upload_success_msg)
-                        messagebox.showinfo("Thành công", upload_success_msg)
                         
                         # Cập nhật trạng thái nút tạo video
                         self.update_create_button_state()
+                        
+                        # Tự động tạo video nếu đã chọn avatar
+                        if self.selected_avatar_id:
+                            self.root.after(500, self.create_video)  # Đợi 500ms rồi tạo video
                         return
                     else:
                         error_msg = "Không thể tìm thấy asset_id trong phản hồi"
@@ -1085,7 +1088,7 @@ class HeyGenVideoCreatorApp:
                 # Nếu lỗi không phải 404, thử lại sau
                 if response.status_code != 404 and attempt < 3:
                     self.update_status(f"Đang đợi API phản hồi... ({attempt+1}/3)")
-                    self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts))
+                    self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
                     return
                 
                 self.update_status(error_msg)
@@ -1137,13 +1140,12 @@ class HeyGenVideoCreatorApp:
                                         video_file.write(video_content)
                                         
                                     self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
-                                    messagebox.showinfo("Thành công", f"Đã tải video thành công: {os.path.basename(file_path)}")
                             except Exception as e:
                                 error_msg = f"Lỗi khi tải video: {str(e)}"
                                 self.update_status(error_msg)
                                 messagebox.showerror("Lỗi", error_msg)
                         
-                        messagebox.showinfo("Thành công", "Video đã được tạo thành công!")
+                        # Không hiển thị thông báo thành công sau khi tạo video
                         self.create_btn.configure(state="normal")
                         return
                     
@@ -1157,7 +1159,7 @@ class HeyGenVideoCreatorApp:
                     
                     # Nếu vẫn đang xử lý, kiểm tra lại sau 5 giây
                     self.update_status(f"Video đang xử lý ({status}), đã đợi {(attempt+1)*5} giây...")
-                    self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts))
+                    self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
                 else:
                     # Fallback: Nếu cấu trúc không khớp, thử tìm status ở cấp cao nhất
                     status = status_data.get("status", "")
@@ -1166,7 +1168,40 @@ class HeyGenVideoCreatorApp:
                         video_url = status_data.get("video_url", "")
                         self.update_status(f"Video đã xử lý xong: {video_id}")
                         self.result_var.set(video_url)
-                        messagebox.showinfo("Thành công", "Video đã được tạo thành công!")
+                        
+                        # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
+                        download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
+                        if download:
+                            try:
+                                # Tạo tên file mặc định từ tên file âm thanh nếu có
+                                default_filename = f"{audio_filename}.mp4" if audio_filename else f"heygen_video_{video_id}.mp4"
+                                
+                                # Mở hộp thoại lưu file với tên mặc định
+                                file_path = filedialog.asksaveasfilename(
+                                    defaultextension=".mp4",
+                                    filetypes=[("MP4 files", "*.mp4")],
+                                    title="Lưu video",
+                                    initialfile=default_filename
+                                )
+                                
+                                if file_path:
+                                    self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
+                                    self.root.update()
+                                    
+                                    # Tải video
+                                    video_content = requests.get(video_url).content
+                                    
+                                    # Lưu vào file
+                                    with open(file_path, "wb") as video_file:
+                                        video_file.write(video_content)
+                                        
+                                    self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                            except Exception as e:
+                                error_msg = f"Lỗi khi tải video: {str(e)}"
+                                self.update_status(error_msg)
+                                messagebox.showerror("Lỗi", error_msg)
+                        
+                        # Không hiển thị thông báo thành công sau khi tạo video
                         self.create_btn.configure(state="normal")
                         return
                     elif status == "failed":
@@ -1179,11 +1214,11 @@ class HeyGenVideoCreatorApp:
                     else:
                         # Nếu không tìm thấy trạng thái, tiếp tục kiểm tra
                         self.update_status(f"Đang đợi trạng thái từ API, đã đợi {(attempt+1)*5} giây...")
-                        self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts))
+                        self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
             except json.JSONDecodeError:
                 # Nếu không thể parse JSON, có thể API đang xử lý, thử lại sau
                 self.update_status(f"Đang đợi API phản hồi... ({attempt+1}/3)")
-                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts))
+                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
         except Exception as e:
             error_msg = f"Lỗi khi kiểm tra trạng thái video: {str(e)}"
             print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
@@ -1192,7 +1227,7 @@ class HeyGenVideoCreatorApp:
             # Thử lại nếu chưa vượt quá số lần thử
             if attempt < 3:
                 self.update_status(f"Gặp lỗi, thử lại sau... ({attempt+1}/3)")
-                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts))
+                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
             else:
                 self.update_status(error_msg)
                 messagebox.showerror("Lỗi", error_msg)
@@ -1314,7 +1349,6 @@ class HeyGenVideoCreatorApp:
                     video_file.write(video_content)
                     
                 self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
-                messagebox.showinfo("Thành công", f"Đã tải video thành công: {os.path.basename(file_path)}")
         except Exception as e:
             error_msg = f"Lỗi khi tải video: {str(e)}"
             self.update_status(error_msg)
