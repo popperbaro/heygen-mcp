@@ -7,7 +7,7 @@ import traceback
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, StringVar
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import pickle
 import re
 
@@ -17,6 +17,7 @@ API_KEY_FILE = os.path.join(CONFIG_DIR, "api_key.txt")
 AVATARS_CACHE_FILE = os.path.join(CONFIG_DIR, "avatars_cache.pkl")
 WINDOW_CONFIG_FILE = os.path.join(CONFIG_DIR, "window_config.json")
 SELECTED_AVATAR_FILE = os.path.join(CONFIG_DIR, "selected_avatar.txt")
+PROXY_CONFIG_FILE = os.path.join(CONFIG_DIR, "proxy_config.json")
 
 # Đảm bảo thư mục cấu hình tồn tại
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -29,12 +30,13 @@ class HeyGenClient:
     BASE_URL = "https://api.heygen.com"
     API_KEY = "OTJmNzE4N2EwZmJkNGY4ZDkzY2VmNTc4NmJlMDlkYmQtMTc0NTM0MjE3Mg=="
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, proxy_settings: Optional[Dict[str, str]] = None):
         """
-        Khởi tạo client với API key
+        Khởi tạo client với API key và cài đặt proxy
         
         Args:
             api_key: API key của HeyGen, sẽ sử dụng API key mặc định nếu không được cung cấp
+            proxy_settings: Cài đặt proxy (địa chỉ, port, username, password)
         """
         self.api_key = api_key or self.API_KEY
         self.headers = {
@@ -42,6 +44,78 @@ class HeyGenClient:
             "content-type": "application/json",
             "x-api-key": self.api_key
         }
+        
+        # Thiết lập proxy
+        self.proxy_settings = proxy_settings
+        self.proxies = self._setup_proxies(proxy_settings) if proxy_settings else None
+    
+    def _setup_proxies(self, proxy_settings: Dict[str, str]) -> Dict[str, str]:
+        """
+        Thiết lập proxy cho requests
+        
+        Args:
+            proxy_settings: Dict chứa thông tin proxy (host, port, username, password)
+            
+        Returns:
+            Dict cấu hình proxies cho thư viện requests
+        """
+        if not proxy_settings or not proxy_settings.get("host") or not proxy_settings.get("port"):
+            return None
+            
+        host = proxy_settings.get("host")
+        port = proxy_settings.get("port")
+        username = proxy_settings.get("username")
+        password = proxy_settings.get("password")
+        
+        # Tạo URL proxy
+        if username and password:
+            proxy_url = f"http://{username}:{password}@{host}:{port}"
+        else:
+            proxy_url = f"http://{host}:{port}"
+            
+        return {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+    
+    def update_proxy_settings(self, proxy_settings: Optional[Dict[str, str]]) -> None:
+        """
+        Cập nhật cài đặt proxy
+        
+        Args:
+            proxy_settings: Dict chứa thông tin proxy (host, port, username, password)
+        """
+        self.proxy_settings = proxy_settings
+        self.proxies = self._setup_proxies(proxy_settings) if proxy_settings else None
+        
+    def test_connection(self) -> Tuple[bool, str]:
+        """
+        Kiểm tra kết nối thông qua proxy
+        
+        Returns:
+            Tuple gồm (success, message) - success là bool, message là thông báo lỗi/thành công
+        """
+        try:
+            url = f"{self.BASE_URL}/v2/avatars"
+            response = requests.get(
+                url, 
+                headers=self.headers, 
+                proxies=self.proxies,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return True, "Kết nối thành công"
+            else:
+                return False, f"Lỗi kết nối: HTTP {response.status_code}"
+        except requests.exceptions.ProxyError as e:
+            return False, f"Lỗi proxy: {str(e)}"
+        except requests.exceptions.ConnectTimeout:
+            return False, f"Kết nối tới proxy bị timeout"
+        except requests.exceptions.ConnectionError as e:
+            return False, f"Lỗi kết nối: {str(e)}"
+        except Exception as e:
+            return False, f"Lỗi không xác định: {str(e)}"
     
     def get_all_avatars(self) -> Dict[str, Any]:
         """
@@ -52,7 +126,7 @@ class HeyGenClient:
         """
         url = f"{self.BASE_URL}/v2/avatars"
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, proxies=self.proxies)
             
             # Kiểm tra mã trạng thái cụ thể
             if response.status_code == 401:
@@ -88,6 +162,9 @@ class HeyGenClient:
             print(f"Lỗi HTTP khi lấy danh sách avatars: {e}")
             print(f"Response text: {getattr(e.response, 'text', 'N/A')}")
             return {"error": f"Lỗi HTTP: {str(e)}"}
+        except requests.exceptions.ProxyError as e:
+            print(f"Lỗi proxy khi lấy danh sách avatars: {e}")
+            return {"error": f"Lỗi proxy: {str(e)}"}
         except requests.exceptions.RequestException as e:
             print(f"Lỗi kết nối khi lấy danh sách avatars: {e}")
             return {"error": f"Lỗi kết nối: {str(e)}"}
@@ -121,7 +198,7 @@ class HeyGenClient:
                 "x-api-key": self.api_key
             }
             
-            response = requests.post(url, files=files, headers=headers)
+            response = requests.post(url, files=files, headers=headers, proxies=self.proxies)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -191,7 +268,7 @@ class HeyGenClient:
         }
         
         try:
-            response = requests.post(url, json=payload, headers=self.headers)
+            response = requests.post(url, json=payload, headers=self.headers, proxies=self.proxies)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -210,7 +287,7 @@ class HeyGenClient:
         """
         url = f"{self.BASE_URL}/v1/video_status.get?video_id={video_id}"
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, proxies=self.proxies)
             response.raise_for_status()
             # Xử lý lỗi JSON decode
             try:
@@ -238,7 +315,7 @@ class HeyGenClient:
             url += f"?limit={limit}"
             
         try:
-            response = requests.get(url, headers=self.headers)
+            response = requests.get(url, headers=self.headers, proxies=self.proxies)
             response.raise_for_status()
             
             # Xử lý lỗi JSON decode
@@ -264,10 +341,14 @@ class HeyGenVideoCreatorApp:
         # Đọc cấu hình cửa sổ từ lần chạy trước (nếu có)
         self.load_window_config()
         
+        # Đọc cấu hình proxy từ file
+        self.proxy_settings = self.load_proxy_config()
+        
         # Đọc API key từ file (nếu có)
         api_key = self.load_api_key()
         
-        self.client = HeyGenClient(api_key)
+        # Khởi tạo client với proxy
+        self.client = HeyGenClient(api_key, self.proxy_settings)
         self.avatars = []
         
         # Khởi tạo ID avatar được chọn
@@ -279,13 +360,244 @@ class HeyGenVideoCreatorApp:
         self.search_var = StringVar()
         self.search_var.trace_add("write", self.filter_avatars)
         
+        # Tạo giao diện
         self.create_ui()
+        
+        # Test proxy khi khởi động
+        if self.proxy_settings:
+            self.root.after(100, self.test_proxy_connection)
         
         # Đọc cache avatars nếu có
         self.load_avatars_cache()
         
         # Đăng ký sự kiện khi đóng cửa sổ
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def load_proxy_config(self):
+        """Đọc cấu hình proxy từ file nếu có"""
+        try:
+            if os.path.exists(PROXY_CONFIG_FILE):
+                with open(PROXY_CONFIG_FILE, 'r') as f:
+                    proxy_config = json.load(f)
+                    print(f"Đã tải cấu hình proxy")
+                    return proxy_config
+        except Exception as e:
+            print(f"Lỗi khi đọc cấu hình proxy: {e}")
+        return None
+    
+    def save_proxy_config(self, proxy_settings):
+        """Lưu cấu hình proxy vào file"""
+        try:
+            with open(PROXY_CONFIG_FILE, 'w') as f:
+                json.dump(proxy_settings, f)
+            print(f"Đã lưu cấu hình proxy")
+        except Exception as e:
+            print(f"Lỗi khi lưu cấu hình proxy: {e}")
+    
+    def test_proxy_connection(self, show_success=False):
+        """
+        Kiểm tra kết nối proxy với API
+        
+        Args:
+            show_success: Có hiển thị thông báo thành công hay không
+        """
+        if not self.proxy_settings:
+            return
+            
+        self.update_status("Đang kiểm tra kết nối proxy...")
+        self.root.update()
+        
+        # Thử kết nối 3 lần
+        success = False
+        error_message = ""
+        
+        for attempt in range(3):
+            success, message = self.client.test_connection()
+            if success:
+                self.update_status(f"Đã kết nối proxy thành công")
+                if show_success:
+                    messagebox.showinfo("Thành công", "Kết nối proxy thành công!")
+                break
+            else:
+                error_message = message
+                self.update_status(f"Thử kết nối proxy lần {attempt+1}/3: Thất bại - {message}")
+                time.sleep(1)  # Đợi 1 giây trước khi thử lại
+                
+        if not success:
+            self.update_status(f"Kết nối proxy thất bại sau 3 lần thử: {error_message}")
+            if show_success:  # Chỉ hiển thị lỗi nếu người dùng test thủ công
+                messagebox.showerror("Lỗi", f"Kết nối proxy thất bại: {error_message}")
+    
+    def update_proxy_settings(self):
+        """Cập nhật cài đặt proxy từ giao diện người dùng"""
+        # Lấy giá trị từ form
+        host = self.proxy_host_var.get().strip()
+        port = self.proxy_port_var.get().strip()
+        username = self.proxy_username_var.get().strip()
+        password = self.proxy_password_var.get().strip()
+        
+        # Kiểm tra giá trị bắt buộc
+        if not host or not port:
+            messagebox.showerror("Lỗi", "Host và Port không được để trống")
+            return False
+        
+        try:
+            # Chuyển port sang số nguyên
+            port = int(port)
+            if port <= 0 or port > 65535:
+                raise ValueError("Port phải từ 1-65535")
+        except ValueError as e:
+            messagebox.showerror("Lỗi", f"Port không hợp lệ: {str(e)}")
+            return False
+            
+        # Tạo dict cấu hình proxy
+        proxy_settings = {
+            "host": host,
+            "port": port
+        }
+        
+        # Thêm username và password nếu có
+        if username:
+            proxy_settings["username"] = username
+        if password:
+            proxy_settings["password"] = password
+            
+        # Cập nhật cài đặt proxy
+        self.proxy_settings = proxy_settings
+        self.client.update_proxy_settings(proxy_settings)
+        
+        # Lưu cấu hình vào file
+        self.save_proxy_config(proxy_settings)
+        
+        self.update_status(f"Đã cập nhật cấu hình proxy: {host}:{port}")
+        return True
+    
+    def on_closing(self):
+        """Xử lý sự kiện khi đóng cửa sổ"""
+        # Lưu cấu hình cửa sổ
+        self.save_window_config()
+        
+        # Lưu avatar đã chọn
+        if self.selected_avatar_id:
+            self.save_selected_avatar(self.selected_avatar_id)
+            
+        self.root.destroy()
+    
+    def create_ui(self):
+        # Tạo frame chính
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Tạo notebook (tab control)
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Tab tạo video
+        create_tab = ttk.Frame(notebook)
+        notebook.add(create_tab, text="Tạo Video")
+        
+        # Tab quản lý video
+        manage_tab = ttk.Frame(notebook)
+        notebook.add(manage_tab, text="Quản Lý Video")
+        
+        # Tab cấu hình proxy
+        proxy_tab = ttk.Frame(notebook)
+        notebook.add(proxy_tab, text="Cấu hình Proxy")
+        
+        # Nội dung Tab tạo video
+        self.create_tab_content(create_tab)
+        
+        # Nội dung Tab quản lý video
+        self.create_manage_tab_content(manage_tab)
+        
+        # Nội dung Tab cấu hình proxy
+        self.create_proxy_tab_content(proxy_tab)
+        
+    def create_proxy_tab_content(self, parent_frame):
+        """Tạo nội dung tab cấu hình proxy"""
+        # Frame chính
+        proxy_frame = ttk.LabelFrame(parent_frame, text="Cài đặt Proxy", padding="10")
+        proxy_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Host
+        host_frame = ttk.Frame(proxy_frame)
+        host_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(host_frame, text="Host:").pack(side=tk.LEFT, padx=5)
+        self.proxy_host_var = tk.StringVar(value=self.proxy_settings.get("host", "") if self.proxy_settings else "")
+        ttk.Entry(host_frame, textvariable=self.proxy_host_var, width=30).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Port
+        port_frame = ttk.Frame(proxy_frame)
+        port_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(port_frame, text="Port:").pack(side=tk.LEFT, padx=5)
+        self.proxy_port_var = tk.StringVar(value=str(self.proxy_settings.get("port", "")) if self.proxy_settings else "")
+        ttk.Entry(port_frame, textvariable=self.proxy_port_var, width=10).pack(side=tk.LEFT, padx=5)
+        
+        # Username
+        username_frame = ttk.Frame(proxy_frame)
+        username_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(username_frame, text="Username:").pack(side=tk.LEFT, padx=5)
+        self.proxy_username_var = tk.StringVar(value=self.proxy_settings.get("username", "") if self.proxy_settings else "")
+        ttk.Entry(username_frame, textvariable=self.proxy_username_var, width=30).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Password
+        password_frame = ttk.Frame(proxy_frame)
+        password_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(password_frame, text="Password:").pack(side=tk.LEFT, padx=5)
+        self.proxy_password_var = tk.StringVar(value=self.proxy_settings.get("password", "") if self.proxy_settings else "")
+        ttk.Entry(password_frame, textvariable=self.proxy_password_var, width=30, show="*").pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Buttons
+        buttons_frame = ttk.Frame(proxy_frame)
+        buttons_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Button(buttons_frame, text="Cập nhật", command=self.update_proxy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="Kiểm tra kết nối", command=self.test_proxy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="Xóa proxy", command=self.clear_proxy).pack(side=tk.LEFT, padx=5)
+        
+        # Trạng thái
+        status_frame = ttk.LabelFrame(parent_frame, text="Trạng thái", padding="5")
+        status_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        proxy_status_var = tk.StringVar(value="Proxy đang " + ("được bật" if self.proxy_settings else "tắt"))
+        ttk.Label(status_frame, textvariable=proxy_status_var).pack(anchor=tk.W, padx=5, pady=5)
+    
+    def update_proxy(self):
+        """Cập nhật proxy từ form nhập liệu"""
+        if self.update_proxy_settings():
+            # Kiểm tra kết nối với proxy mới
+            self.test_proxy_connection(show_success=True)
+    
+    def test_proxy(self):
+        """Test kết nối proxy từ giao diện người dùng"""
+        # Cập nhật proxy settings trước khi test
+        if self.update_proxy_settings():
+            self.test_proxy_connection(show_success=True)
+    
+    def clear_proxy(self):
+        """Xóa cấu hình proxy"""
+        if messagebox.askyesno("Xác nhận", "Bạn có chắc muốn xóa cấu hình proxy không?"):
+            self.proxy_settings = None
+            self.client.update_proxy_settings(None)
+            
+            # Xóa file cấu hình nếu tồn tại
+            if os.path.exists(PROXY_CONFIG_FILE):
+                try:
+                    os.remove(PROXY_CONFIG_FILE)
+                except Exception as e:
+                    print(f"Lỗi khi xóa file cấu hình proxy: {e}")
+            
+            # Reset các trường form
+            self.proxy_host_var.set("")
+            self.proxy_port_var.set("")
+            self.proxy_username_var.set("")
+            self.proxy_password_var.set("")
+            
+            self.update_status("Đã xóa cấu hình proxy")
     
     def load_api_key(self):
         """Đọc API key từ file nếu có"""
@@ -354,40 +666,30 @@ class HeyGenVideoCreatorApp:
         except Exception as e:
             print(f"Lỗi khi lưu cấu hình cửa sổ: {e}")
     
-    def on_closing(self):
-        """Xử lý sự kiện khi đóng cửa sổ"""
-        # Lưu cấu hình cửa sổ
-        self.save_window_config()
+    def load_selected_avatar(self):
+        """Đọc avatar đã chọn từ lần trước, nếu không có thì dùng mặc định"""
+        try:
+            if os.path.exists(SELECTED_AVATAR_FILE):
+                with open(SELECTED_AVATAR_FILE, 'r') as f:
+                    avatar_id = f.read().strip()
+                    if avatar_id:
+                        print(f"Đã tải avatar đã chọn: {avatar_id}")
+                        return avatar_id
+        except Exception as e:
+            print(f"Lỗi khi đọc avatar đã chọn: {e}")
         
-        # Lưu avatar đã chọn
-        if self.selected_avatar_id:
-            self.save_selected_avatar(self.selected_avatar_id)
-            
-        self.root.destroy()
+        # Trả về avatar mặc định
+        return "Conrad_standing_house_front"
     
-    def create_ui(self):
-        # Tạo frame chính
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Tạo notebook (tab control)
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(fill=tk.BOTH, expand=True)
-        
-        # Tab tạo video
-        create_tab = ttk.Frame(notebook)
-        notebook.add(create_tab, text="Tạo Video")
-        
-        # Tab quản lý video
-        manage_tab = ttk.Frame(notebook)
-        notebook.add(manage_tab, text="Quản Lý Video")
-        
-        # Nội dung Tab tạo video
-        self.create_tab_content(create_tab)
-        
-        # Nội dung Tab quản lý video
-        self.create_manage_tab_content(manage_tab)
-        
+    def save_selected_avatar(self, avatar_id):
+        """Lưu avatar đã chọn vào file"""
+        try:
+            with open(SELECTED_AVATAR_FILE, 'w') as f:
+                f.write(avatar_id)
+            print(f"Đã lưu avatar đã chọn: {avatar_id}")
+        except Exception as e:
+            print(f"Lỗi khi lưu avatar đã chọn: {e}")
+
     def create_tab_content(self, parent_frame):
         # API Key
         api_frame = ttk.LabelFrame(parent_frame, text="API Key", padding="5")
@@ -573,7 +875,7 @@ class HeyGenVideoCreatorApp:
         
         # Bắt sự kiện khi chọn video
         self.videos_tree.bind("<<TreeviewSelect>>", self.on_video_selected)
-    
+
     def update_api_key(self):
         api_key = self.api_key_var.get().strip()
         if api_key:
@@ -602,7 +904,7 @@ class HeyGenVideoCreatorApp:
         url = f"{self.client.BASE_URL}/v2/avatars"
         
         try:
-            response = requests.get(url, headers=self.client.headers)
+            response = requests.get(url, headers=self.client.headers, proxies=self.client.proxies)
             
             if response.status_code == 200:
                 try:
@@ -813,7 +1115,137 @@ class HeyGenVideoCreatorApp:
         # Nếu không tìm thấy, hiển thị thông báo
         self.update_status(f"Không tìm thấy avatar với ID: {avatar_id}")
         return False
+        
+    def update_status(self, message):
+        self.status_var.set(message)
+        print(message)
     
+    def copy_result_url(self):
+        url = self.result_var.get()
+        if url:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+            self.update_status("Đã sao chép URL vào clipboard")
+        else:
+            self.update_status("Không có URL để sao chép")
+            
+    def copy_video_url(self):
+        url = self.video_url_var.get()
+        if url:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+            self.update_status("Đã sao chép URL video vào clipboard")
+        else:
+            self.update_status("Không có URL để sao chép")
+            
+    def load_videos(self):
+        self.update_status("Đang tải danh sách video...")
+        self.root.update()
+        
+        # Xóa dữ liệu cũ
+        for item in self.videos_tree.get_children():
+            self.videos_tree.delete(item)
+        
+        # Lấy danh sách video
+        response = self.client.get_all_videos()
+        
+        if "error" in response and response["error"] is not None:
+            error_msg = f"Lỗi: {response['error']}"
+            self.update_status(error_msg)
+            messagebox.showerror("Lỗi", f"Không thể tải danh sách video: {response['error']}")
+            return
+        
+        # Xử lý phản hồi
+        if "data" in response and "videos" in response["data"]:
+            videos = response["data"]["videos"]
+            
+            if videos:
+                # Hiển thị danh sách video
+                for video in videos:
+                    video_id = video.get("video_id", "")
+                    status = video.get("status", "")
+                    created_at = video.get("created_at", 0)
+                    video_type = video.get("type", "")
+                    
+                    # Chuyển đổi timestamp thành datetime
+                    created_date = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at))
+                    
+                    self.videos_tree.insert("", tk.END, values=(
+                        video_id,
+                        status,
+                        created_date,
+                        video_type
+                    ))
+                
+                total = len(videos)
+                self.update_status(f"Đã tải {total} video")
+            else:
+                self.update_status("Không tìm thấy video nào")
+        else:
+            error_msg = "Không thể tải danh sách video: Cấu trúc dữ liệu không được hỗ trợ"
+            self.update_status(error_msg)
+            messagebox.showerror("Lỗi", error_msg)
+    
+    def on_video_selected(self, event):
+        selection = self.videos_tree.selection()
+        if selection:
+            item = selection[0]
+            video_id = self.videos_tree.item(item, "values")[0]
+            
+            # Lấy thông tin chi tiết về video
+            url = f"{self.client.BASE_URL}/v1/video_status.get?video_id={video_id}"
+            
+            try:
+                response = requests.get(url, headers=self.client.headers, proxies=self.client.proxies)
+                response.raise_for_status()
+                data = response.json()
+                
+                if "data" in data:
+                    video_data = data["data"]
+                    video_url = video_data.get("video_url", "")
+                    self.video_url_var.set(video_url)
+                    
+                    status = video_data.get("status", "")
+                    self.update_status(f"Đã chọn video: {video_id}, trạng thái: {status}")
+                else:
+                    self.video_url_var.set("")
+                    self.update_status(f"Không tìm thấy thông tin chi tiết cho video: {video_id}")
+            except Exception as e:
+                self.update_status(f"Lỗi khi lấy thông tin video: {str(e)}")
+                self.video_url_var.set("")
+    
+    def download_selected_video(self):
+        video_url = self.video_url_var.get()
+        
+        if not video_url:
+            messagebox.showerror("Lỗi", "Không có URL video để tải. Vui lòng chọn một video đã hoàn thành.")
+            return
+        
+        try:
+            # Mở hộp thoại lưu file
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".mp4",
+                filetypes=[("MP4 files", "*.mp4")],
+                title="Lưu video"
+            )
+            
+            if file_path:
+                self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
+                self.root.update()
+                
+                # Tải video
+                video_content = requests.get(video_url, proxies=self.client.proxies).content
+                
+                # Lưu vào file
+                with open(file_path, "wb") as video_file:
+                    video_file.write(video_content)
+                    
+                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+        except Exception as e:
+            error_msg = f"Lỗi khi tải video: {str(e)}"
+            self.update_status(error_msg)
+            messagebox.showerror("Lỗi", error_msg)
+
     def select_audio_file(self):
         file_path = filedialog.askopenfilename(
             title="Chọn file audio",
@@ -875,7 +1307,7 @@ class HeyGenVideoCreatorApp:
             print(f"Headers: {headers}")
             
             # Thực hiện upload bằng cách gửi binary data trực tiếp (không sử dụng multipart form)
-            response = requests.post(upload_url, headers=headers, data=file_content)
+            response = requests.post(upload_url, headers=headers, data=file_content, proxies=self.client.proxies)
             
             # In thông tin phản hồi
             print(f"Phản hồi upload - Status: {response.status_code}")
@@ -1003,7 +1435,7 @@ class HeyGenVideoCreatorApp:
             }
             
             # Gửi request
-            response = requests.post(url, json=payload, headers=self.client.headers)
+            response = requests.post(url, json=payload, headers=self.client.headers, proxies=self.client.proxies)
             
             # Kiểm tra mã trạng thái và xử lý phản hồi
             if response.status_code == 200:
@@ -1070,7 +1502,7 @@ class HeyGenVideoCreatorApp:
         try:
             # Sử dụng endpoint chính xác theo tài liệu API
             url = f"{self.client.BASE_URL}/v1/video_status.get?video_id={video_id}"
-            response = requests.get(url, headers=self.client.headers)
+            response = requests.get(url, headers=self.client.headers, proxies=self.client.proxies)
             
             print(f"Kiểm tra trạng thái video - Status code: {response.status_code}")
             print(f"Kiểm tra trạng thái video - Response: {response.text[:200]}...")
@@ -1133,7 +1565,7 @@ class HeyGenVideoCreatorApp:
                                     self.root.update()
                                     
                                     # Tải video
-                                    video_content = requests.get(video_url).content
+                                    video_content = requests.get(video_url, proxies=self.client.proxies).content
                                     
                                     # Lưu vào file
                                     with open(file_path, "wb") as video_file:
@@ -1189,7 +1621,7 @@ class HeyGenVideoCreatorApp:
                                     self.root.update()
                                     
                                     # Tải video
-                                    video_content = requests.get(video_url).content
+                                    video_content = requests.get(video_url, proxies=self.client.proxies).content
                                     
                                     # Lưu vào file
                                     with open(file_path, "wb") as video_file:
@@ -1232,160 +1664,6 @@ class HeyGenVideoCreatorApp:
                 self.update_status(error_msg)
                 messagebox.showerror("Lỗi", error_msg)
                 self.create_btn.configure(state="normal")
-    
-    def update_status(self, message):
-        self.status_var.set(message)
-        print(message)
-    
-    def copy_result_url(self):
-        url = self.result_var.get()
-        if url:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(url)
-            self.update_status("Đã sao chép URL vào clipboard")
-        else:
-            self.update_status("Không có URL để sao chép")
-    
-    def load_videos(self):
-        self.update_status("Đang tải danh sách video...")
-        self.root.update()
-        
-        # Xóa dữ liệu cũ
-        for item in self.videos_tree.get_children():
-            self.videos_tree.delete(item)
-        
-        # Lấy danh sách video
-        response = self.client.get_all_videos()
-        
-        if "error" in response and response["error"] is not None:
-            error_msg = f"Lỗi: {response['error']}"
-            self.update_status(error_msg)
-            messagebox.showerror("Lỗi", f"Không thể tải danh sách video: {response['error']}")
-            return
-        
-        # Xử lý phản hồi
-        if "data" in response and "videos" in response["data"]:
-            videos = response["data"]["videos"]
-            
-            if videos:
-                # Hiển thị danh sách video
-                for video in videos:
-                    video_id = video.get("video_id", "")
-                    status = video.get("status", "")
-                    created_at = video.get("created_at", 0)
-                    video_type = video.get("type", "")
-                    
-                    # Chuyển đổi timestamp thành datetime
-                    created_date = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at))
-                    
-                    self.videos_tree.insert("", tk.END, values=(
-                        video_id,
-                        status,
-                        created_date,
-                        video_type
-                    ))
-                
-                total = len(videos)
-                self.update_status(f"Đã tải {total} video")
-            else:
-                self.update_status("Không tìm thấy video nào")
-        else:
-            error_msg = "Không thể tải danh sách video: Cấu trúc dữ liệu không được hỗ trợ"
-            self.update_status(error_msg)
-            messagebox.showerror("Lỗi", error_msg)
-    
-    def on_video_selected(self, event):
-        selection = self.videos_tree.selection()
-        if selection:
-            item = selection[0]
-            video_id = self.videos_tree.item(item, "values")[0]
-            
-            # Lấy thông tin chi tiết về video
-            url = f"{self.client.BASE_URL}/v1/video_status.get?video_id={video_id}"
-            
-            try:
-                response = requests.get(url, headers=self.client.headers)
-                response.raise_for_status()
-                data = response.json()
-                
-                if "data" in data:
-                    video_data = data["data"]
-                    video_url = video_data.get("video_url", "")
-                    self.video_url_var.set(video_url)
-                    
-                    status = video_data.get("status", "")
-                    self.update_status(f"Đã chọn video: {video_id}, trạng thái: {status}")
-                else:
-                    self.video_url_var.set("")
-                    self.update_status(f"Không tìm thấy thông tin chi tiết cho video: {video_id}")
-            except Exception as e:
-                self.update_status(f"Lỗi khi lấy thông tin video: {str(e)}")
-                self.video_url_var.set("")
-    
-    def download_selected_video(self):
-        video_url = self.video_url_var.get()
-        
-        if not video_url:
-            messagebox.showerror("Lỗi", "Không có URL video để tải. Vui lòng chọn một video đã hoàn thành.")
-            return
-        
-        try:
-            # Mở hộp thoại lưu file
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".mp4",
-                filetypes=[("MP4 files", "*.mp4")],
-                title="Lưu video"
-            )
-            
-            if file_path:
-                self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
-                self.root.update()
-                
-                # Tải video
-                video_content = requests.get(video_url).content
-                
-                # Lưu vào file
-                with open(file_path, "wb") as video_file:
-                    video_file.write(video_content)
-                    
-                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
-        except Exception as e:
-            error_msg = f"Lỗi khi tải video: {str(e)}"
-            self.update_status(error_msg)
-            messagebox.showerror("Lỗi", error_msg)
-    
-    def copy_video_url(self):
-        url = self.video_url_var.get()
-        if url:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(url)
-            self.update_status("Đã sao chép URL video vào clipboard")
-        else:
-            self.update_status("Không có URL để sao chép")
-    
-    def load_selected_avatar(self):
-        """Đọc avatar đã chọn từ lần trước, nếu không có thì dùng mặc định"""
-        try:
-            if os.path.exists(SELECTED_AVATAR_FILE):
-                with open(SELECTED_AVATAR_FILE, 'r') as f:
-                    avatar_id = f.read().strip()
-                    if avatar_id:
-                        print(f"Đã tải avatar đã chọn: {avatar_id}")
-                        return avatar_id
-        except Exception as e:
-            print(f"Lỗi khi đọc avatar đã chọn: {e}")
-        
-        # Trả về avatar mặc định
-        return "Conrad_standing_house_front"
-    
-    def save_selected_avatar(self, avatar_id):
-        """Lưu avatar đã chọn vào file"""
-        try:
-            with open(SELECTED_AVATAR_FILE, 'w') as f:
-                f.write(avatar_id)
-            print(f"Đã lưu avatar đã chọn: {avatar_id}")
-        except Exception as e:
-            print(f"Lỗi khi lưu avatar đã chọn: {e}")
 
 
 if __name__ == "__main__":
