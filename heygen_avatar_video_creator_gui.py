@@ -1912,10 +1912,10 @@ class HeyGenVideoCreatorApp:
             if not self.processing_videos:
                 self.create_btn.configure(state="normal")
     
-    def check_video_status(self, video_id, attempt=0, max_attempts=180, audio_filename=None):
+    def check_video_status(self, video_id, attempt=0, max_attempts=720, audio_filename=None):
         if attempt >= max_attempts:
-            self.update_status("Đã hết thời gian chờ xử lý video")
-            messagebox.showerror("Lỗi", "Đã hết thời gian chờ xử lý video")
+            self.update_status(f"Đã hết thời gian chờ xử lý video (60 phút)")
+            messagebox.showerror("Lỗi", f"Đã hết thời gian chờ xử lý video (60 phút)")
             if video_id in self.processing_videos:
                 del self.processing_videos[video_id]
             
@@ -2065,7 +2065,11 @@ class HeyGenVideoCreatorApp:
                         return
                     
                     # Nếu vẫn đang xử lý, kiểm tra lại sau 5 giây
-                    self.update_status(f"Video đang xử lý ({status}), đã đợi {(attempt+1)*5} giây...")
+                    remaining_seconds = (max_attempts - attempt) * 5
+                    remaining_minutes = remaining_seconds // 60
+                    remaining_seconds %= 60
+                    
+                    self.update_status(f"Video đang xử lý ({status}), đã đợi {(attempt+1)*5} giây... Còn lại: {remaining_minutes} phút {remaining_seconds} giây")
                     self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
                 else:
                     # Fallback: Nếu cấu trúc không khớp, thử tìm status ở cấp cao nhất
@@ -2164,7 +2168,11 @@ class HeyGenVideoCreatorApp:
                         return
                     else:
                         # Nếu không tìm thấy trạng thái, tiếp tục kiểm tra
-                        self.update_status(f"Đang đợi trạng thái từ API, đã đợi {(attempt+1)*5} giây...")
+                        remaining_seconds = (max_attempts - attempt) * 5
+                        remaining_minutes = remaining_seconds // 60
+                        remaining_seconds %= 60
+                        
+                        self.update_status(f"Đang đợi trạng thái từ API, đã đợi {(attempt+1)*5} giây... Còn lại: {remaining_minutes} phút {remaining_seconds} giây")
                         self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
             except json.JSONDecodeError:
                 # Nếu không thể parse JSON, có thể API đang xử lý, thử lại sau
