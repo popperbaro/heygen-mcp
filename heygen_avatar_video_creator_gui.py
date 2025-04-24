@@ -327,6 +327,50 @@ class HeyGenClient:
         except Exception as e:
             print(f"Lỗi khi lấy danh sách video: {e}")
             return {"error": str(e)}
+    
+    def get_remaining_quota(self) -> Dict[str, Any]:
+        """
+        Lấy thông tin về số token còn lại của người dùng
+        
+        Returns:
+            Dict chứa thông tin về quota còn lại
+        """
+        url = f"{self.BASE_URL}/v2/user/remaining_quota"
+        try:
+            response = requests.get(url, headers=self.headers, proxies=self.proxies)
+            
+            # Kiểm tra mã trạng thái cụ thể
+            if response.status_code == 401:
+                print(f"Lỗi xác thực API (401 Unauthorized). Kiểm tra lại API key của bạn.")
+                return {"error": "Lỗi xác thực API (401 Unauthorized)."}
+            elif response.status_code == 403:
+                print(f"Lỗi quyền truy cập API (403 Forbidden).")
+                return {"error": "Lỗi quyền truy cập API (403 Forbidden)."}
+            
+            # Sử dụng raise_for_status để xử lý các lỗi HTTP khác
+            response.raise_for_status()
+            
+            # Phân tích JSON
+            json_data = response.json()
+            print(f"Phản hồi quota: {json.dumps(json_data)}")
+            
+            return json_data
+                
+        except requests.exceptions.HTTPError as e:
+            print(f"Lỗi HTTP khi lấy thông tin quota: {e}")
+            return {"error": f"Lỗi HTTP: {str(e)}"}
+        except requests.exceptions.ProxyError as e:
+            print(f"Lỗi proxy khi lấy thông tin quota: {e}")
+            return {"error": f"Lỗi proxy: {str(e)}"}
+        except requests.exceptions.RequestException as e:
+            print(f"Lỗi kết nối khi lấy thông tin quota: {e}")
+            return {"error": f"Lỗi kết nối: {str(e)}"}
+        except json.JSONDecodeError as e:
+            print(f"Lỗi phân tích JSON: {e}")
+            return {"error": f"Lỗi phân tích JSON: {str(e)}"}
+        except Exception as e:
+            print(f"Lỗi không xác định khi lấy thông tin quota: {e}")
+            return {"error": str(e)}
 
 
 class HeyGenVideoCreatorApp:
@@ -896,6 +940,7 @@ class HeyGenVideoCreatorApp:
     def verify_api_key(self):
         """
         Kiểm tra API Key hiện tại có hợp lệ không bằng cách sử dụng API v2
+        và hiển thị số token còn lại
         """
         self.update_status("Đang kiểm tra API Key...")
         self.root.update()
@@ -912,7 +957,36 @@ class HeyGenVideoCreatorApp:
                     if "data" in data:
                         avatar_count = len(data["data"]["avatars"]) if "avatars" in data["data"] else len(data["data"])
                         self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
-                        messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars")
+                        
+                        # Lấy thông tin về số token còn lại
+                        quota_response = self.client.get_remaining_quota()
+                        
+                        if "error" not in quota_response:
+                            # Xử lý phản hồi để lấy thông tin quota
+                            remaining_tokens = "Không xác định"
+                            
+                            # Kiểm tra cấu trúc phản hồi có chứa thông tin quota hay không
+                            if "data" in quota_response:
+                                quota_data = quota_response["data"]
+                                
+                                # Kiểm tra các định dạng phản hồi có thể có
+                                if "remaining_quota" in quota_data:
+                                    remaining_tokens = quota_data["remaining_quota"]
+                                elif "remaining_tokens" in quota_data:
+                                    remaining_tokens = quota_data["remaining_tokens"]
+                                elif "quota" in quota_data and "remaining" in quota_data["quota"]:
+                                    remaining_tokens = quota_data["quota"]["remaining"]
+                                
+                                # Định dạng lại số token nếu là số
+                                if isinstance(remaining_tokens, (int, float)):
+                                    remaining_tokens = "{:,}".format(remaining_tokens)
+                            
+                            # Hiển thị thông báo với số token còn lại
+                            messagebox.showinfo("Thành công", f"API Key hợp lệ!\nTìm thấy {avatar_count} avatars\nSố token còn lại: {remaining_tokens}")
+                        else:
+                            # Nếu không lấy được thông tin quota, chỉ hiển thị thông báo về avatars
+                            messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars\n(Không thể lấy thông tin token)")
+                        
                     else:
                         self.update_status("API Key hợp lệ")
                         messagebox.showinfo("Thành công", "API Key hợp lệ!")
