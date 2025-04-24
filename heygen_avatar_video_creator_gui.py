@@ -18,6 +18,7 @@ AVATARS_CACHE_FILE = os.path.join(CONFIG_DIR, "avatars_cache.pkl")
 WINDOW_CONFIG_FILE = os.path.join(CONFIG_DIR, "window_config.json")
 SELECTED_AVATAR_FILE = os.path.join(CONFIG_DIR, "selected_avatar.txt")
 PROXY_CONFIG_FILE = os.path.join(CONFIG_DIR, "proxy_config.json")
+DOWNLOAD_DIR_FILE = os.path.join(CONFIG_DIR, "download_dir.txt")
 
 # Đảm bảo thư mục cấu hình tồn tại
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -400,6 +401,17 @@ class HeyGenVideoCreatorApp:
         self.audio_file_path = None
         self.audio_asset_id = None
         
+        # Danh sách các file audio được chọn
+        self.audio_file_paths = []
+        self.audio_assets = []  # Lưu danh sách các audio asset id đã upload
+        self.current_upload_index = 0  # Chỉ số file đang upload
+        
+        # Khởi tạo thư mục tải về mặc định
+        self.download_dir = self.load_download_dir()
+        
+        # Biến để theo dõi các video đang được tạo
+        self.processing_videos = {}
+        
         # Biến cho chức năng tìm kiếm
         self.search_var = StringVar()
         self.search_var.trace_add("write", self.filter_avatars)
@@ -524,6 +536,10 @@ class HeyGenVideoCreatorApp:
         # Lưu avatar đã chọn
         if self.selected_avatar_id:
             self.save_selected_avatar(self.selected_avatar_id)
+            
+        # Lưu thư mục tải về mặc định
+        if self.download_dir:
+            self.save_download_dir(self.download_dir)
             
         self.root.destroy()
     
@@ -733,6 +749,40 @@ class HeyGenVideoCreatorApp:
             print(f"Đã lưu avatar đã chọn: {avatar_id}")
         except Exception as e:
             print(f"Lỗi khi lưu avatar đã chọn: {e}")
+            
+    def load_download_dir(self):
+        """Đọc thư mục tải về mặc định từ file nếu có"""
+        try:
+            if os.path.exists(DOWNLOAD_DIR_FILE):
+                with open(DOWNLOAD_DIR_FILE, 'r') as f:
+                    download_dir = f.read().strip()
+                    if download_dir and os.path.exists(download_dir) and os.path.isdir(download_dir):
+                        print(f"Đã tải thư mục tải về mặc định: {download_dir}")
+                        return download_dir
+        except Exception as e:
+            print(f"Lỗi khi đọc thư mục tải về mặc định: {e}")
+        
+        # Nếu không có hoặc không hợp lệ, trả về thư mục Downloads hoặc Documents
+        default_dirs = [
+            os.path.join(os.path.expanduser("~"), "Downloads"),
+            os.path.join(os.path.expanduser("~"), "Documents"),
+            os.path.expanduser("~")
+        ]
+        
+        for dir_path in default_dirs:
+            if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                return dir_path
+                
+        return None
+    
+    def save_download_dir(self, download_dir):
+        """Lưu thư mục tải về mặc định vào file"""
+        try:
+            with open(DOWNLOAD_DIR_FILE, 'w') as f:
+                f.write(download_dir)
+            print(f"Đã lưu thư mục tải về mặc định: {download_dir}")
+        except Exception as e:
+            print(f"Lỗi khi lưu thư mục tải về mặc định: {e}")
 
     def create_tab_content(self, parent_frame):
         # API Key
@@ -840,12 +890,29 @@ class HeyGenVideoCreatorApp:
         self.height_var = tk.StringVar(value="720")
         ttk.Entry(dim_frame, textvariable=self.height_var, width=6).pack(side=tk.LEFT, padx=5)
         
+        # Frame cho thư mục tải về
+        download_frame = ttk.Frame(video_settings_frame)
+        download_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(download_frame, text="Thư mục tải về:").pack(side=tk.LEFT, padx=5)
+        self.download_dir_var = tk.StringVar(value=self.download_dir if self.download_dir else "")
+        ttk.Entry(download_frame, textvariable=self.download_dir_var, width=40).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(download_frame, text="Chọn thư mục", command=self.select_download_dir).pack(side=tk.LEFT, padx=5)
+        
+        # Tự động tải về checkbox
+        self.auto_download_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(download_frame, text="Tự động tải về", variable=self.auto_download_var).pack(side=tk.LEFT, padx=5)
+        
         # Tạo video button
         buttons_frame = ttk.Frame(parent_frame)
         buttons_frame.pack(fill=tk.X, padx=5, pady=10)
         
         self.create_btn = ttk.Button(buttons_frame, text="Tạo Video", command=self.create_video, state="disabled")
         self.create_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Thêm nút tạo nhiều video
+        self.create_multiple_btn = ttk.Button(buttons_frame, text="Tạo Tất Cả Video", command=self.create_multiple_videos, state="disabled")
+        self.create_multiple_btn.pack(side=tk.RIGHT, padx=5)
         
         # Status frame
         self.status_frame = ttk.LabelFrame(parent_frame, text="Trạng thái", padding="5")
@@ -1319,31 +1386,78 @@ class HeyGenVideoCreatorApp:
             error_msg = f"Lỗi khi tải video: {str(e)}"
             self.update_status(error_msg)
             messagebox.showerror("Lỗi", error_msg)
-
+    
     def select_audio_file(self):
-        file_path = filedialog.askopenfilename(
+        file_paths = filedialog.askopenfilenames(
             title="Chọn file audio",
             filetypes=[("Audio Files", "*.mp3 *.wav *.ogg *.m4a")]
         )
-        if file_path:
-            self.audio_file_path = file_path
-            self.audio_file_var.set(file_path)
-            self.update_status(f"Đã chọn file: {file_path}")
+        if file_paths:
+            # Lưu danh sách file được chọn
+            self.audio_file_paths = list(file_paths)
+            
+            # Hiển thị file đầu tiên trong trường nhập liệu
+            self.audio_file_path = self.audio_file_paths[0]
+            self.audio_file_var.set(f"Đã chọn {len(self.audio_file_paths)} file audio")
+            
+            self.update_status(f"Đã chọn {len(self.audio_file_paths)} file audio")
             self.upload_btn.configure(state="normal")
             
             # Reset audio asset ID khi chọn file mới
             self.audio_asset_id = None
             self.audio_asset_var.set("")
+            self.audio_assets = []
             
             # Cập nhật trạng thái nút tạo video
             self.update_create_button_state()
     
+    def select_download_dir(self):
+        """Chọn thư mục tải về mặc định"""
+        dir_path = filedialog.askdirectory(
+            title="Chọn thư mục lưu video",
+            initialdir=self.download_dir if self.download_dir else None
+        )
+        if dir_path:
+            self.download_dir = dir_path
+            self.download_dir_var.set(dir_path)
+            self.save_download_dir(dir_path)
+            self.update_status(f"Đã chọn thư mục tải về: {dir_path}")
+    
     def upload_audio(self):
-        if not self.audio_file_path:
+        if not self.audio_file_paths:
             messagebox.showerror("Lỗi", "Vui lòng chọn file âm thanh trước")
             return
         
-        self.update_status(f"Đang upload file âm thanh: {os.path.basename(self.audio_file_path)}...")
+        # Reset danh sách audio assets và chỉ số upload
+        self.audio_assets = []
+        self.current_upload_index = 0
+        
+        # Bắt đầu quá trình upload từ file đầu tiên
+        self.upload_next_audio()
+    
+    def upload_next_audio(self):
+        """Upload file âm thanh tiếp theo trong danh sách"""
+        if self.current_upload_index >= len(self.audio_file_paths):
+            # Đã upload hết tất cả file
+            total_files = len(self.audio_file_paths)
+            self.update_status(f"Đã upload xong {total_files} file âm thanh")
+            
+            # Cập nhật hiển thị asset ID
+            if self.audio_assets:
+                self.audio_asset_id = self.audio_assets[0]["id"]
+                self.audio_asset_var.set(f"Đã upload {len(self.audio_assets)} file")
+            
+            # Cập nhật trạng thái nút tạo video
+            self.update_create_button_state()
+            
+            # Tự động tạo video nếu đã chọn avatar
+            if self.selected_avatar_id and self.auto_download_var.get():
+                self.root.after(500, self.create_multiple_videos)
+            return
+        
+        # Lấy file hiện tại cần upload
+        current_file = self.audio_file_paths[self.current_upload_index]
+        self.update_status(f"Đang upload file âm thanh ({self.current_upload_index + 1}/{len(self.audio_file_paths)}): {os.path.basename(current_file)}...")
         self.root.update()
         
         # Vô hiệu hóa nút upload
@@ -1351,10 +1465,10 @@ class HeyGenVideoCreatorApp:
         
         try:
             # Chuẩn bị multipart form data
-            with open(self.audio_file_path, 'rb') as f:
+            with open(current_file, 'rb') as f:
                 file_content = f.read()
             
-            filename = os.path.basename(self.audio_file_path)
+            filename = os.path.basename(current_file)
             
             # Xác định content type
             content_type = "audio/mpeg"  # Mặc định
@@ -1399,18 +1513,21 @@ class HeyGenVideoCreatorApp:
                     # Kiểm tra cấu trúc phản hồi
                     # Có thể là: {"code": 100, "data": {"id": "asset_id", ...}}
                     if "data" in response_data and "id" in response_data["data"]:
-                        self.audio_asset_id = response_data["data"]["id"]
-                        self.audio_asset_var.set(self.audio_asset_id)
+                        asset_id = response_data["data"]["id"]
                         
-                        upload_success_msg = f"Đã upload file thành công. Asset ID: {self.audio_asset_id}"
+                        # Thêm vào danh sách audio assets
+                        self.audio_assets.append({
+                            "id": asset_id, 
+                            "filename": filename,
+                            "filepath": current_file
+                        })
+                        
+                        upload_success_msg = f"Đã upload file thành công ({self.current_upload_index + 1}/{len(self.audio_file_paths)}): {filename}"
                         self.update_status(upload_success_msg)
                         
-                        # Cập nhật trạng thái nút tạo video
-                        self.update_create_button_state()
-                        
-                        # Tự động tạo video nếu đã chọn avatar
-                        if self.selected_avatar_id:
-                            self.root.after(500, self.create_video)  # Đợi 500ms rồi tạo video
+                        # Tăng chỉ số và tiếp tục upload file tiếp theo
+                        self.current_upload_index += 1
+                        self.root.after(500, self.upload_next_audio)
                         return
                     else:
                         error_msg = "Không thể tìm thấy asset_id trong phản hồi"
@@ -1444,16 +1561,208 @@ class HeyGenVideoCreatorApp:
         self.upload_btn.configure(state="normal")
     
     def update_create_button_state(self):
-        if self.selected_avatar_id and self.audio_asset_id:
+        if self.selected_avatar_id and (self.audio_asset_id or self.audio_assets):
             self.create_btn.configure(state="normal")
+            
+            # Kích hoạt nút tạo nhiều video nếu có nhiều file audio được upload
+            if hasattr(self, 'audio_assets') and self.audio_assets and len(self.audio_assets) > 0:
+                self.create_multiple_btn.configure(state="normal")
+            else:
+                self.create_multiple_btn.configure(state="disabled")
         else:
             self.create_btn.configure(state="disabled")
+            self.create_multiple_btn.configure(state="disabled")
     
-    def create_video(self):
+    def create_multiple_videos(self):
+        """Tạo video cho tất cả file audio đã upload"""
         if not self.selected_avatar_id:
             messagebox.showerror("Lỗi", "Vui lòng chọn một avatar")
             return
         
+        if not self.audio_assets:
+            messagebox.showerror("Lỗi", "Vui lòng upload file âm thanh trước")
+            return
+            
+        # Nếu không có thư mục tải về và tự động tải về được bật
+        if self.auto_download_var.get() and not self.download_dir:
+            messagebox.showinfo("Thông báo", "Vui lòng chọn thư mục tải video về trước")
+            self.select_download_dir()
+            if not self.download_dir:  # Nếu người dùng hủy chọn thư mục
+                return
+        
+        # Vô hiệu hóa nút tạo video
+        self.create_btn.configure(state="disabled")
+        
+        # Tạo video cho từng file audio
+        for index, asset in enumerate(self.audio_assets):
+            # Tạm dừng một chút giữa các yêu cầu để tránh quá tải API
+            self.root.after(index * 200, lambda asset=asset: self.create_video_for_asset(asset))
+        
+        self.update_status(f"Đã bắt đầu tạo {len(self.audio_assets)} video")
+    
+    def create_video_for_asset(self, asset):
+        """Tạo video cho một asset cụ thể"""
+        try:
+            width = int(self.width_var.get())
+            height = int(self.height_var.get())
+            bg_color = self.bg_color_var.get()
+            
+            asset_id = asset["id"]
+            filename = asset["filename"]
+            
+            self.update_status(f"Đang tạo video cho file: {filename}...")
+            
+            # In thông tin payload để debug
+            payload_info = {
+                "avatar_id": self.selected_avatar_id,
+                "audio_asset_id": asset_id,
+                "background_color": bg_color,
+                "width": width,
+                "height": height
+            }
+            print(f"Payload tạo video: {json.dumps(payload_info)}")
+            
+            # Thực hiện API call
+            url = f"{self.client.BASE_URL}/v2/video/generate"
+            
+            # Chuẩn bị payload theo cấu trúc yêu cầu của API
+            payload = {
+                "video_inputs": [
+                    {
+                        "character": {
+                            "type": "avatar",
+                            "avatar_id": self.selected_avatar_id,
+                            "avatar_style": "normal"
+                        },
+                        "voice": {
+                            "type": "audio",
+                            "audio_asset_id": asset_id
+                        },
+                        "background": {
+                            "type": "color",
+                            "value": bg_color
+                        }
+                    }
+                ],
+                "dimension": {
+                    "width": width,
+                    "height": height
+                },
+                "caption": False
+            }
+            
+            # Tạo hàm xử lý riêng để chạy trong thread
+            def create_video_thread():
+                try:
+                    # Gửi request
+                    response = requests.post(url, json=payload, headers=self.client.headers, proxies=self.client.proxies)
+                    
+                    # Kiểm tra mã trạng thái và xử lý phản hồi
+                    if response.status_code == 200:
+                        video_data = response.json()
+                        
+                        # In phản hồi từ API để debug
+                        print(f"Phản hồi API tạo video: {json.dumps(video_data) if isinstance(video_data, dict) else video_data}")
+                        
+                        # Kiểm tra và xử lý phản hồi
+                        if "error" in video_data and video_data["error"] is not None:
+                            error_msg = f"Lỗi cho file {filename}: {video_data['error']}"
+                            self.update_status(error_msg)
+                            print(error_msg)
+                            
+                            # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                            if not self.processing_videos:
+                                self.create_btn.configure(state="normal")
+                            return
+                        
+                        if "data" in video_data and "video_id" in video_data["data"]:
+                            video_id = video_data["data"]["video_id"]
+                            
+                            # Lấy tên file âm thanh để đặt tên cho video (không bao gồm phần mở rộng)
+                            audio_filename = os.path.splitext(filename)[0]
+                            
+                            # Thêm video vào danh sách đang xử lý
+                            self.processing_videos[video_id] = {
+                                "avatar_id": self.selected_avatar_id,
+                                "audio_filename": audio_filename,
+                                "filepath": asset["filepath"],
+                                "filename": filename,
+                                "start_time": time.time()
+                            }
+                            
+                            self.update_status(f"Video đang được tạo cho file {filename} với ID: {video_id}")
+                            
+                            # Bắt đầu kiểm tra trạng thái video trong main thread
+                            self.root.after(100, lambda: self.check_video_status(video_id, audio_filename=audio_filename))
+                        else:
+                            error_msg = f"Không thể tạo video cho file {filename}: Không tìm thấy video_id trong phản hồi"
+                            if isinstance(video_data, dict):
+                                error_msg += f": {json.dumps(video_data)}"
+                            self.update_status(error_msg)
+                            print(error_msg)
+                            
+                            # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                            if not self.processing_videos:
+                                self.create_btn.configure(state="normal")
+                    else:
+                        error_msg = f"Lỗi khi tạo video cho file {filename}: HTTP {response.status_code}"
+                        try:
+                            error_data = response.json()
+                            if isinstance(error_data, dict) and "message" in error_data:
+                                error_msg += f" - {error_data['message']}"
+                        except:
+                            if response.text:
+                                error_msg += f" - {response.text[:200]}..."
+                        
+                        self.update_status(error_msg)
+                        print(error_msg)
+                        
+                        # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                        if not self.processing_videos:
+                            self.create_btn.configure(state="normal")
+                except Exception as e:
+                    error_msg = f"Lỗi không xác định khi tạo video cho file {filename}: {str(e)}"
+                    print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
+                    print(f"Traceback: {traceback.format_exc()}")
+                    self.update_status(error_msg)
+                    print(error_msg)
+                    
+                    # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                    if not self.processing_videos:
+                        self.create_btn.configure(state="normal")
+            
+            # Khởi tạo thread và chạy
+            create_thread = threading.Thread(target=create_video_thread)
+            create_thread.daemon = True
+            create_thread.start()
+            
+        except ValueError as e:
+            error_msg = f"Lỗi định dạng khi tạo video cho file {filename}: {str(e)}"
+            self.update_status(error_msg)
+            print(error_msg)
+            if not self.processing_videos:
+                self.create_btn.configure(state="normal")
+        except Exception as e:
+            error_msg = f"Lỗi không xác định khi tạo video cho file {filename}: {str(e)}"
+            print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            self.update_status(error_msg)
+            print(error_msg)
+            if not self.processing_videos:
+                self.create_btn.configure(state="normal")
+    
+    def create_video(self):
+        """Hàm xử lý khi nhấn nút tạo video - tùy thuộc vào số lượng file sẽ gọi hàm thích hợp"""
+        if not self.selected_avatar_id:
+            messagebox.showerror("Lỗi", "Vui lòng chọn một avatar")
+            return
+        
+        # Nếu có nhiều file audio đã upload, sử dụng tính năng tạo nhiều video
+        if hasattr(self, 'audio_assets') and self.audio_assets and len(self.audio_assets) > 0:
+            self.create_multiple_videos()
+            return
+        
+        # Xử lý trường hợp chỉ có một file audio (phương thức cũ)
         if not self.audio_asset_id:
             messagebox.showerror("Lỗi", "Vui lòng upload file âm thanh trước")
             return
@@ -1465,9 +1774,6 @@ class HeyGenVideoCreatorApp:
             
             self.update_status(f"Đang tạo video với avatar ID: {self.selected_avatar_id}...")
             self.root.update()
-            
-            # Vô hiệu hóa nút tạo video
-            self.create_btn.configure(state="disabled")
             
             # In thông tin payload để debug
             payload_info = {
@@ -1508,69 +1814,111 @@ class HeyGenVideoCreatorApp:
                 "caption": False
             }
             
-            # Gửi request
-            response = requests.post(url, json=payload, headers=self.client.headers, proxies=self.client.proxies)
+            # Vô hiệu hóa nút tạo video 
+            self.create_btn.configure(state="disabled")
             
-            # Kiểm tra mã trạng thái và xử lý phản hồi
-            if response.status_code == 200:
-                video_data = response.json()
-                
-                # In phản hồi từ API để debug
-                print(f"Phản hồi API tạo video: {json.dumps(video_data) if isinstance(video_data, dict) else video_data}")
-                
-                # Kiểm tra và xử lý phản hồi
-                if "error" in video_data and video_data["error"] is not None:
-                    error_msg = f"Lỗi: {video_data['error']}"
-                    self.update_status(error_msg)
-                    messagebox.showerror("Lỗi", f"Không thể tạo video: {video_data['error']}")
-                    self.create_btn.configure(state="normal")
-                    return
-                
-                if "data" in video_data and "video_id" in video_data["data"]:
-                    video_id = video_data["data"]["video_id"]
-                    self.update_status(f"Video đang được tạo với ID: {video_id}")
+            # Tạo hàm xử lý riêng để chạy trong thread
+            def create_video_thread():
+                try:
+                    # Gửi request
+                    response = requests.post(url, json=payload, headers=self.client.headers, proxies=self.client.proxies)
                     
-                    # Lấy tên file âm thanh để đặt tên cho video (không bao gồm phần mở rộng)
-                    audio_filename = os.path.splitext(os.path.basename(self.audio_file_path))[0] if self.audio_file_path else None
-                    
-                    # Bắt đầu kiểm tra trạng thái video
-                    self.root.after(100, lambda: self.check_video_status(video_id, audio_filename=audio_filename))
-                else:
-                    error_msg = "Không thể tạo video: Không tìm thấy video_id trong phản hồi"
-                    if isinstance(video_data, dict):
-                        error_msg += f": {json.dumps(video_data)}"
+                    # Kiểm tra mã trạng thái và xử lý phản hồi
+                    if response.status_code == 200:
+                        video_data = response.json()
+                        
+                        # In phản hồi từ API để debug
+                        print(f"Phản hồi API tạo video: {json.dumps(video_data) if isinstance(video_data, dict) else video_data}")
+                        
+                        # Kiểm tra và xử lý phản hồi
+                        if "error" in video_data and video_data["error"] is not None:
+                            error_msg = f"Lỗi: {video_data['error']}"
+                            self.update_status(error_msg)
+                            messagebox.showerror("Lỗi", f"Không thể tạo video: {video_data['error']}")
+                            
+                            # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                            if not self.processing_videos:
+                                self.create_btn.configure(state="normal")
+                            return
+                        
+                        if "data" in video_data and "video_id" in video_data["data"]:
+                            video_id = video_data["data"]["video_id"]
+                            
+                            # Lấy tên file âm thanh để đặt tên cho video (không bao gồm phần mở rộng)
+                            audio_filename = os.path.splitext(os.path.basename(self.audio_file_path))[0] if self.audio_file_path else None
+                            
+                            # Thêm video vào danh sách đang xử lý
+                            self.processing_videos[video_id] = {
+                                "avatar_id": self.selected_avatar_id,
+                                "audio_filename": audio_filename,
+                                "start_time": time.time()
+                            }
+                            
+                            self.update_status(f"Video đang được tạo với ID: {video_id}")
+                            
+                            # Bắt đầu kiểm tra trạng thái video trong main thread
+                            self.root.after(100, lambda: self.check_video_status(video_id, audio_filename=audio_filename))
+                        else:
+                            error_msg = "Không thể tạo video: Không tìm thấy video_id trong phản hồi"
+                            if isinstance(video_data, dict):
+                                error_msg += f": {json.dumps(video_data)}"
+                            self.update_status(error_msg)
+                            messagebox.showerror("Lỗi", error_msg)
+                            
+                            # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                            if not self.processing_videos:
+                                self.create_btn.configure(state="normal")
+                    else:
+                        error_msg = f"Lỗi khi tạo video: HTTP {response.status_code}"
+                        try:
+                            error_data = response.json()
+                            if isinstance(error_data, dict) and "message" in error_data:
+                                error_msg += f" - {error_data['message']}"
+                        except:
+                            if response.text:
+                                error_msg += f" - {response.text[:200]}..."
+                        
+                        self.update_status(error_msg)
+                        messagebox.showerror("Lỗi", error_msg)
+                        
+                        # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                        if not self.processing_videos:
+                            self.create_btn.configure(state="normal")
+                except Exception as e:
+                    error_msg = f"Lỗi không xác định: {str(e)}"
+                    print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
+                    print(f"Traceback: {traceback.format_exc()}")
                     self.update_status(error_msg)
                     messagebox.showerror("Lỗi", error_msg)
-                    self.create_btn.configure(state="normal")
-            else:
-                error_msg = f"Lỗi khi tạo video: HTTP {response.status_code}"
-                try:
-                    error_data = response.json()
-                    if isinstance(error_data, dict) and "message" in error_data:
-                        error_msg += f" - {error_data['message']}"
-                except:
-                    if response.text:
-                        error_msg += f" - {response.text[:200]}..."
-                
-                self.update_status(error_msg)
-                messagebox.showerror("Lỗi", error_msg)
-                self.create_btn.configure(state="normal")
-        
+                    
+                    # Kích hoạt lại nút create nếu không còn video nào đang xử lý
+                    if not self.processing_videos:
+                        self.create_btn.configure(state="normal")
+            
+            # Khởi tạo thread và chạy
+            create_thread = threading.Thread(target=create_video_thread)
+            create_thread.daemon = True
+            create_thread.start()
+            
         except ValueError as e:
             messagebox.showerror("Lỗi", f"Lỗi định dạng: {str(e)}")
-            self.create_btn.configure(state="normal")
+            if not self.processing_videos:
+                self.create_btn.configure(state="normal")
         except Exception as e:
             error_msg = f"Lỗi không xác định: {str(e)}"
             print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
             print(f"Traceback: {traceback.format_exc()}")
             messagebox.showerror("Lỗi", error_msg)
-            self.create_btn.configure(state="normal")
+            if not self.processing_videos:
+                self.create_btn.configure(state="normal")
     
     def check_video_status(self, video_id, attempt=0, max_attempts=180, audio_filename=None):
         if attempt >= max_attempts:
             self.update_status("Đã hết thời gian chờ xử lý video")
             messagebox.showerror("Lỗi", "Đã hết thời gian chờ xử lý video")
-            self.create_btn.configure(state="normal")
+            if video_id in self.processing_videos:
+                del self.processing_videos[video_id]
+            
             return
         
         try:
@@ -1600,6 +1948,8 @@ class HeyGenVideoCreatorApp:
                 self.update_status(error_msg)
                 messagebox.showerror("Lỗi", error_msg)
                 self.create_btn.configure(state="normal")
+                if video_id in self.processing_videos:
+                    del self.processing_videos[video_id]
                 return
             
             try:
@@ -1616,43 +1966,87 @@ class HeyGenVideoCreatorApp:
                     if status == "completed":
                         video_url = video_data.get("video_url", "")
                         
-                        self.update_status(f"Video đã xử lý xong: {video_id}")
+                        # Hiển thị thông báo hoàn thành
+                        video_info = self.processing_videos.get(video_id, {})
+                        filename = video_info.get("filename", "")
+                        if filename:
+                            self.update_status(f"Video cho file '{filename}' đã xử lý xong")
+                        else:
+                            self.update_status(f"Video đã xử lý xong: {video_id}")
+                        
                         self.result_var.set(video_url)
                         
-                        # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
-                        download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
-                        if download:
+                        # Kiểm tra nếu đã bật tự động tải về và có thư mục tải về
+                        if self.auto_download_var.get() and self.download_dir:
                             try:
                                 # Tạo tên file mặc định từ tên file âm thanh nếu có
                                 default_filename = f"{audio_filename}.mp4" if audio_filename else f"heygen_video_{video_id}.mp4"
+                                file_path = os.path.join(self.download_dir, default_filename)
                                 
-                                # Mở hộp thoại lưu file với tên mặc định
-                                file_path = filedialog.asksaveasfilename(
-                                    defaultextension=".mp4",
-                                    filetypes=[("MP4 files", "*.mp4")],
-                                    title="Lưu video",
-                                    initialfile=default_filename
-                                )
+                                # Kiểm tra xem file đã tồn tại chưa, nếu có thì thêm số vào tên file
+                                counter = 1
+                                while os.path.exists(file_path):
+                                    base_name, ext = os.path.splitext(default_filename)
+                                    new_name = f"{base_name}_{counter}{ext}"
+                                    file_path = os.path.join(self.download_dir, new_name)
+                                    counter += 1
+
+                                self.update_status(f"Đang tự động tải video xuống: {os.path.basename(file_path)}...")
+                                self.root.update()
                                 
-                                if file_path:
-                                    self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
-                                    self.root.update()
+                                # Tải video
+                                video_content = requests.get(video_url, proxies=self.client.proxies).content
+                                
+                                # Lưu vào file
+                                with open(file_path, "wb") as video_file:
+                                    video_file.write(video_content)
                                     
-                                    # Tải video
-                                    video_content = requests.get(video_url, proxies=self.client.proxies).content
-                                    
-                                    # Lưu vào file
-                                    with open(file_path, "wb") as video_file:
-                                        video_file.write(video_content)
-                                        
-                                    self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
                             except Exception as e:
                                 error_msg = f"Lỗi khi tải video: {str(e)}"
                                 self.update_status(error_msg)
-                                messagebox.showerror("Lỗi", error_msg)
+                                print(error_msg)
+                        else:
+                            # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
+                            download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
+                            if download:
+                                try:
+                                    # Tạo tên file mặc định từ tên file âm thanh nếu có
+                                    default_filename = f"{audio_filename}.mp4" if audio_filename else f"heygen_video_{video_id}.mp4"
+                                    
+                                    # Mở hộp thoại lưu file với tên mặc định
+                                    file_path = filedialog.asksaveasfilename(
+                                        defaultextension=".mp4",
+                                        filetypes=[("MP4 files", "*.mp4")],
+                                        title="Lưu video",
+                                        initialfile=default_filename,
+                                        initialdir=self.download_dir if self.download_dir else None
+                                    )
+                                    
+                                    if file_path:
+                                        self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
+                                        self.root.update()
+                                        
+                                        # Tải video
+                                        video_content = requests.get(video_url, proxies=self.client.proxies).content
+                                        
+                                        # Lưu vào file
+                                        with open(file_path, "wb") as video_file:
+                                            video_file.write(video_content)
+                                            
+                                        self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                except Exception as e:
+                                    error_msg = f"Lỗi khi tải video: {str(e)}"
+                                    self.update_status(error_msg)
+                                    messagebox.showerror("Lỗi", error_msg)
                         
-                        # Không hiển thị thông báo thành công sau khi tạo video
-                        self.create_btn.configure(state="normal")
+                        # Xóa video này khỏi danh sách đang xử lý
+                        if video_id in self.processing_videos:
+                            del self.processing_videos[video_id]
+                            
+                        # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
+                        if not self.processing_videos:
+                            self.create_btn.configure(state="normal")
                         return
                     
                     elif status == "failed":
@@ -1660,7 +2054,14 @@ class HeyGenVideoCreatorApp:
                         error_msg = f"Video xử lý thất bại: {error_reason}" if error_reason else f"Video xử lý thất bại: {video_id}"
                         self.update_status(error_msg)
                         messagebox.showerror("Lỗi", error_msg)
-                        self.create_btn.configure(state="normal")
+                        
+                        # Xóa video này khỏi danh sách đang xử lý
+                        if video_id in self.processing_videos:
+                            del self.processing_videos[video_id]
+                            
+                        # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
+                        if not self.processing_videos:
+                            self.create_btn.configure(state="normal")
                         return
                     
                     # Nếu vẫn đang xử lý, kiểm tra lại sau 5 giây
@@ -1675,47 +2076,91 @@ class HeyGenVideoCreatorApp:
                         self.update_status(f"Video đã xử lý xong: {video_id}")
                         self.result_var.set(video_url)
                         
-                        # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
-                        download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
-                        if download:
+                        # Kiểm tra nếu đã bật tự động tải về và có thư mục tải về
+                        if self.auto_download_var.get() and self.download_dir:
                             try:
                                 # Tạo tên file mặc định từ tên file âm thanh nếu có
                                 default_filename = f"{audio_filename}.mp4" if audio_filename else f"heygen_video_{video_id}.mp4"
+                                file_path = os.path.join(self.download_dir, default_filename)
                                 
-                                # Mở hộp thoại lưu file với tên mặc định
-                                file_path = filedialog.asksaveasfilename(
-                                    defaultextension=".mp4",
-                                    filetypes=[("MP4 files", "*.mp4")],
-                                    title="Lưu video",
-                                    initialfile=default_filename
-                                )
+                                # Kiểm tra xem file đã tồn tại chưa, nếu có thì thêm số vào tên file
+                                counter = 1
+                                while os.path.exists(file_path):
+                                    base_name, ext = os.path.splitext(default_filename)
+                                    new_name = f"{base_name}_{counter}{ext}"
+                                    file_path = os.path.join(self.download_dir, new_name)
+                                    counter += 1
+
+                                self.update_status(f"Đang tự động tải video xuống: {os.path.basename(file_path)}...")
+                                self.root.update()
                                 
-                                if file_path:
-                                    self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
-                                    self.root.update()
+                                # Tải video
+                                video_content = requests.get(video_url, proxies=self.client.proxies).content
+                                
+                                # Lưu vào file
+                                with open(file_path, "wb") as video_file:
+                                    video_file.write(video_content)
                                     
-                                    # Tải video
-                                    video_content = requests.get(video_url, proxies=self.client.proxies).content
-                                    
-                                    # Lưu vào file
-                                    with open(file_path, "wb") as video_file:
-                                        video_file.write(video_content)
-                                        
-                                    self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
                             except Exception as e:
                                 error_msg = f"Lỗi khi tải video: {str(e)}"
                                 self.update_status(error_msg)
-                                messagebox.showerror("Lỗi", error_msg)
+                                print(error_msg)
+                        else:
+                            # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
+                            download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
+                            if download:
+                                try:
+                                    # Tạo tên file mặc định từ tên file âm thanh nếu có
+                                    default_filename = f"{audio_filename}.mp4" if audio_filename else f"heygen_video_{video_id}.mp4"
+                                    
+                                    # Mở hộp thoại lưu file với tên mặc định
+                                    file_path = filedialog.asksaveasfilename(
+                                        defaultextension=".mp4",
+                                        filetypes=[("MP4 files", "*.mp4")],
+                                        title="Lưu video",
+                                        initialfile=default_filename,
+                                        initialdir=self.download_dir if self.download_dir else None
+                                    )
+                                    
+                                    if file_path:
+                                        self.update_status(f"Đang tải video xuống: {os.path.basename(file_path)}...")
+                                        self.root.update()
+                                        
+                                        # Tải video
+                                        video_content = requests.get(video_url, proxies=self.client.proxies).content
+                                        
+                                        # Lưu vào file
+                                        with open(file_path, "wb") as video_file:
+                                            video_file.write(video_content)
+                                            
+                                        self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                except Exception as e:
+                                    error_msg = f"Lỗi khi tải video: {str(e)}"
+                                    self.update_status(error_msg)
+                                    messagebox.showerror("Lỗi", error_msg)
                         
-                        # Không hiển thị thông báo thành công sau khi tạo video
-                        self.create_btn.configure(state="normal")
+                        # Xóa video này khỏi danh sách đang xử lý
+                        if video_id in self.processing_videos:
+                            del self.processing_videos[video_id]
+                            
+                        # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
+                        if not self.processing_videos:
+                            self.create_btn.configure(state="normal")
                         return
                     elif status == "failed":
                         error_reason = status_data.get("error", "")
                         error_msg = f"Video xử lý thất bại: {error_reason}" if error_reason else f"Video xử lý thất bại: {video_id}"
                         self.update_status(error_msg)
                         messagebox.showerror("Lỗi", error_msg)
-                        self.create_btn.configure(state="normal")
+                        
+                        # Xóa video này khỏi danh sách đang xử lý
+                        if video_id in self.processing_videos:
+                            del self.processing_videos[video_id]
+                            
+                        # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
+                        if not self.processing_videos:
+                            self.create_btn.configure(state="normal")
                         return
                     else:
                         # Nếu không tìm thấy trạng thái, tiếp tục kiểm tra
@@ -1737,7 +2182,14 @@ class HeyGenVideoCreatorApp:
             else:
                 self.update_status(error_msg)
                 messagebox.showerror("Lỗi", error_msg)
-                self.create_btn.configure(state="normal")
+                
+                # Xóa video này khỏi danh sách đang xử lý
+                if video_id in self.processing_videos:
+                    del self.processing_videos[video_id]
+                    
+                # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
+                if not self.processing_videos:
+                    self.create_btn.configure(state="normal")
 
 
 if __name__ == "__main__":
