@@ -1342,7 +1342,7 @@ class HeyGenVideoCreatorApp:
     def update_status(self, message):
         # Nếu có thông tin về thời gian còn lại, hiển thị kèm theo
         if hasattr(self, 'remaining_time_format') and self.remaining_time_format:
-            status_text = f"{message} | Thời gian còn lại: {self.remaining_time_format}"
+            status_text = f"{message} | Thời gian tối đa còn lại: {self.remaining_time_format}"
         else:
             status_text = message
             
@@ -1435,7 +1435,23 @@ class HeyGenVideoCreatorApp:
                     self.video_url_var.set(video_url)
                     
                     status = video_data.get("status", "")
-                    self.update_status(f"Đã chọn video: {video_id}, trạng thái: {status}")
+                    
+                    # Lấy thông tin về thời lượng video nếu có
+                    duration = video_data.get("duration", None)
+                    duration_info = ""
+                    
+                    if duration is not None and isinstance(duration, (int, float)):
+                        # Tính toán số credit đã sử dụng
+                        credits_used = self.calculate_video_credits(duration)
+                        
+                        # Định dạng thông tin về thời lượng và credit
+                        if credits_used is not None:
+                            minutes = int(duration // 60)
+                            seconds = int(duration % 60)
+                            duration_formatted = f"{minutes}:{seconds:02d}"
+                            duration_info = f" | Thời lượng: {duration_formatted} | Credit: {credits_used:.2f}"
+                    
+                    self.update_status(f"Đã chọn video: {video_id}, trạng thái: {status}{duration_info}")
                 else:
                     self.video_url_var.set("")
                     self.update_status(f"Không tìm thấy thông tin chi tiết cho video: {video_id}")
@@ -2006,6 +2022,30 @@ class HeyGenVideoCreatorApp:
             if not self.processing_videos:
                 self.create_btn.configure(state="normal")
     
+    def calculate_video_credits(self, duration_seconds):
+        """
+        Tính toán số credit API đã sử dụng dựa trên thời lượng video
+        
+        Args:
+            duration_seconds: Thời lượng video tính bằng giây
+            
+        Returns:
+            Số credit API đã sử dụng
+        """
+        if duration_seconds is None or not isinstance(duration_seconds, (int, float)):
+            return None
+            
+        # Làm tròn lên đến 30 giây tiếp theo
+        duration_rounded = (duration_seconds + 29) // 30 * 30
+        
+        # Chuyển đổi thành phút
+        duration_minutes = duration_rounded / 60
+        
+        # Tính số credit: 0.5 credit mỗi phút
+        credits = duration_minutes * 0.5
+        
+        return credits
+
     def check_video_status(self, video_id, attempt=0, max_attempts=720, audio_filename=None):
         if attempt >= max_attempts:
             self.update_status(f"Đã hết thời gian chờ xử lý video (60 phút)")
@@ -2057,6 +2097,21 @@ class HeyGenVideoCreatorApp:
                     video_data = status_data["data"]
                     status = video_data.get("status", "")
                     
+                    # Lấy thời lượng video nếu có
+                    duration = video_data.get("duration", None)
+                    duration_info = ""
+                    
+                    if duration is not None and isinstance(duration, (int, float)):
+                        # Tính toán số credit đã sử dụng
+                        credits_used = self.calculate_video_credits(duration)
+                        
+                        # Định dạng thông tin về thời lượng và credit
+                        if credits_used is not None:
+                            minutes = int(duration // 60)
+                            seconds = int(duration % 60)
+                            duration_formatted = f"{minutes}:{seconds:02d}"
+                            duration_info = f" | Thời lượng: {duration_formatted} | Credit: {credits_used:.2f}"
+                    
                     if status == "completed":
                         video_url = video_data.get("video_url", "")
                         
@@ -2064,9 +2119,9 @@ class HeyGenVideoCreatorApp:
                         video_info = self.processing_videos.get(video_id, {})
                         filename = video_info.get("filename", "")
                         if filename:
-                            self.update_status(f"Video cho file '{filename}' đã xử lý xong")
+                            self.update_status(f"Video cho file '{filename}' đã xử lý xong{duration_info}")
                         else:
-                            self.update_status(f"Video đã xử lý xong: {video_id}")
+                            self.update_status(f"Video đã xử lý xong: {video_id}{duration_info}")
                         
                         self.result_var.set(video_url)
                         
@@ -2095,14 +2150,14 @@ class HeyGenVideoCreatorApp:
                                 with open(file_path, "wb") as video_file:
                                     video_file.write(video_content)
                                     
-                                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}{duration_info}")
                             except Exception as e:
                                 error_msg = f"Lỗi khi tải video: {str(e)}"
                                 self.update_status(error_msg)
                                 print(error_msg)
                         else:
                             # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
-                            download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
+                            download = messagebox.askyesno("Tải video", f"Video đã được tạo thành công!{duration_info}\nBạn có muốn tải video về máy không?")
                             if download:
                                 try:
                                     # Tạo tên file mặc định từ tên file âm thanh nếu có
@@ -2128,7 +2183,7 @@ class HeyGenVideoCreatorApp:
                                         with open(file_path, "wb") as video_file:
                                             video_file.write(video_content)
                                             
-                                        self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                        self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}{duration_info}")
                                 except Exception as e:
                                     error_msg = f"Lỗi khi tải video: {str(e)}"
                                     self.update_status(error_msg)
@@ -2171,7 +2226,23 @@ class HeyGenVideoCreatorApp:
                     
                     if status == "completed":
                         video_url = status_data.get("video_url", "")
-                        self.update_status(f"Video đã xử lý xong: {video_id}")
+                        
+                        # Lấy thời lượng video nếu có
+                        duration = status_data.get("duration", None)
+                        duration_info = ""
+                        
+                        if duration is not None and isinstance(duration, (int, float)):
+                            # Tính toán số credit đã sử dụng
+                            credits_used = self.calculate_video_credits(duration)
+                            
+                            # Định dạng thông tin về thời lượng và credit
+                            if credits_used is not None:
+                                minutes = int(duration // 60)
+                                seconds = int(duration % 60)
+                                duration_formatted = f"{minutes}:{seconds:02d}"
+                                duration_info = f" | Thời lượng: {duration_formatted} | Credit: {credits_used:.2f}"
+                        
+                        self.update_status(f"Video đã xử lý xong: {video_id}{duration_info}")
                         self.result_var.set(video_url)
                         
                         # Kiểm tra nếu đã bật tự động tải về và có thư mục tải về
@@ -2199,14 +2270,14 @@ class HeyGenVideoCreatorApp:
                                 with open(file_path, "wb") as video_file:
                                     video_file.write(video_content)
                                     
-                                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}{duration_info}")
                             except Exception as e:
                                 error_msg = f"Lỗi khi tải video: {str(e)}"
                                 self.update_status(error_msg)
                                 print(error_msg)
                         else:
                             # Hiển thị hộp thoại hỏi người dùng có muốn tải video không
-                            download = messagebox.askyesno("Tải video", "Video đã được tạo thành công! Bạn có muốn tải video về máy không?")
+                            download = messagebox.askyesno("Tải video", f"Video đã được tạo thành công!{duration_info}\nBạn có muốn tải video về máy không?")
                             if download:
                                 try:
                                     # Tạo tên file mặc định từ tên file âm thanh nếu có
@@ -2232,7 +2303,7 @@ class HeyGenVideoCreatorApp:
                                         with open(file_path, "wb") as video_file:
                                             video_file.write(video_content)
                                             
-                                        self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}")
+                                        self.update_status(f"Đã tải video thành công: {os.path.basename(file_path)}{duration_info}")
                                 except Exception as e:
                                     error_msg = f"Lỗi khi tải video: {str(e)}"
                                     self.update_status(error_msg)
@@ -2270,29 +2341,27 @@ class HeyGenVideoCreatorApp:
                         self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
             except json.JSONDecodeError:
                 # Nếu không thể parse JSON, có thể API đang xử lý, thử lại sau
-                self.update_status(f"Đang đợi API phản hồi... ({attempt+1}/3)")
+                print(f"Không thể parse JSON, đang thử lại sau 5 giây. Response: {response.text[:200]}...")
                 self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
         except Exception as e:
-            error_msg = f"Lỗi khi kiểm tra trạng thái video: {str(e)}"
+            error_msg = f"Lỗi khi kiểm tra trạng thái: {str(e)}"
             print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
             print(f"Traceback: {traceback.format_exc()}")
             
-            # Thử lại nếu chưa vượt quá số lần thử
+            # Nếu có lỗi, thử lại vài lần trước khi bỏ
             if attempt < 3:
-                self.update_status(f"Gặp lỗi, thử lại sau... ({attempt+1}/3)")
+                self.update_status(f"Lỗi khi kiểm tra ({attempt+1}/3), thử lại sau 5 giây...")
                 self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
             else:
                 self.update_status(error_msg)
-                messagebox.showerror("Lỗi", error_msg)
-                
                 # Xóa video này khỏi danh sách đang xử lý
                 if video_id in self.processing_videos:
                     del self.processing_videos[video_id]
-                    
+                
                 # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
                 if not self.processing_videos:
                     self.create_btn.configure(state="normal")
-
+    
     def format_remaining_time(self, seconds):
         """
         Định dạng thời gian còn lại dưới dạng HH:MM:SS hoặc MM:SS
@@ -2317,12 +2386,56 @@ class HeyGenVideoCreatorApp:
         else:
             # Không có giờ, hiển thị định dạng MM:SS
             return f"{minutes:02d}:{secs:02d}"
+    
+    def calculate_credits_from_quota(self, quota):
+        """
+        Tính toán số credit API từ quota
+        
+        Args:
+            quota: Số quota (thường là số giây) từ API
+            
+        Returns:
+            Số credit API và thời lượng tối đa có thể tạo (phút)
+        """
+        if quota is None or not isinstance(quota, (int, float)):
+            return None, None
+            
+        # Tính số credit: quota/60
+        credits = quota / 60
+        
+        # Tính thời lượng tối đa có thể tạo: credit * 2 (phút)
+        max_duration_minutes = credits * 2
+        
+        return credits, max_duration_minutes
+    
+    def format_credits_info(self, credits, max_duration_minutes):
+        """
+        Định dạng thông tin về số credit và thời lượng tối đa
+        
+        Args:
+            credits: Số credit API
+            max_duration_minutes: Thời lượng tối đa có thể tạo (phút)
+            
+        Returns:
+            Chuỗi thông tin định dạng
+        """
+        if credits is None or max_duration_minutes is None:
+            return "Không xác định"
+            
+        # Chuyển đổi thời lượng tối đa thành phút và giây
+        max_duration_mins = int(max_duration_minutes)
+        max_duration_secs = int((max_duration_minutes - max_duration_mins) * 60)
+        
+        # Định dạng thông tin
+        max_duration_text = f"{max_duration_mins}:{max_duration_secs:02d}"
+        
+        return f"{credits:.2f} credit (tối đa {max_duration_text} phút)"
             
     def check_remaining_quota(self):
         """
         Kiểm tra và hiển thị thông tin về số token còn lại
         """
-        self.update_status("Đang kiểm tra số token còn lại...")
+        self.update_status("Đang kiểm tra số credit API còn lại...")
         self.root.update()
         
         # Lấy thông tin quota
@@ -2330,7 +2443,7 @@ class HeyGenVideoCreatorApp:
         
         try:
             # Xử lý phản hồi để lấy thông tin quota
-            remaining_seconds = None
+            remaining_quota = None
             
             # Kiểm tra nếu error là None hoặc null (sẽ được chuyển thành None trong Python)
             if quota_response.get("error") is None and "data" in quota_response:
@@ -2338,38 +2451,49 @@ class HeyGenVideoCreatorApp:
                 
                 # Kiểm tra các định dạng phản hồi có thể có
                 if "remaining_quota" in quota_data:
-                    remaining_seconds = quota_data["remaining_quota"]
+                    remaining_quota = quota_data["remaining_quota"]
                 elif "remaining_tokens" in quota_data:
-                    remaining_seconds = quota_data["remaining_tokens"]
+                    remaining_quota = quota_data["remaining_tokens"]
                 elif "quota" in quota_data and "remaining" in quota_data["quota"]:
-                    remaining_seconds = quota_data["quota"]["remaining"]
+                    remaining_quota = quota_data["quota"]["remaining"]
                 
                 # In ra thông tin debug
                 print(f"Phản hồi quota: {json.dumps(quota_response)}")
-                print(f"Remaining seconds: {remaining_seconds}")
+                print(f"Remaining quota: {remaining_quota}")
                 
-                # Định dạng thời gian còn lại
-                if remaining_seconds is not None and isinstance(remaining_seconds, (int, float)):
-                    # Định dạng hiển thị HH:MM:SS hoặc MM:SS tùy thuộc vào thời gian
-                    self.remaining_time_format = self.format_remaining_time(remaining_seconds)
+                # Tính toán số credit và thời lượng tối đa
+                if remaining_quota is not None and isinstance(remaining_quota, (int, float)):
+                    credits, max_duration_minutes = self.calculate_credits_from_quota(remaining_quota)
+                    
+                    # Định dạng thông tin
+                    credits_info = self.format_credits_info(credits, max_duration_minutes)
+                    
+                    # Chuyển đổi thời lượng tối đa thành giây
+                    max_duration_seconds = max_duration_minutes * 60 if max_duration_minutes is not None else None
+                    
+                    # Định dạng thời gian tối đa
+                    if max_duration_seconds is not None:
+                        self.remaining_time_format = self.format_remaining_time(max_duration_seconds)
+                    else:
+                        self.remaining_time_format = None
                     
                     # Hiển thị trong trạng thái
-                    self.update_status("Đã cập nhật thông tin token")
+                    self.update_status("Đã cập nhật thông tin credit API")
                     
                     # Hiển thị thông báo
-                    messagebox.showinfo("Thông tin token", f"Thời gian còn lại: {self.remaining_time_format}")
+                    messagebox.showinfo("Thông tin credit API", f"Credit còn lại: {credits_info}")
                     return
             
             # Nếu không lấy được thông tin quota
             self.remaining_time_format = None
-            self.update_status("Không thể lấy thông tin về số token còn lại")
-            messagebox.showinfo("Thông tin token", "Không thể lấy thông tin về số token còn lại")
+            self.update_status("Không thể lấy thông tin về số credit API còn lại")
+            messagebox.showinfo("Thông tin credit API", "Không thể lấy thông tin về số credit API còn lại")
             
         except Exception as e:
             error_msg = str(e)
             self.remaining_time_format = None
-            self.update_status(f"Không thể lấy thông tin token: {error_msg}")
-            messagebox.showerror("Lỗi", f"Không thể lấy thông tin token: {error_msg}")
+            self.update_status(f"Không thể lấy thông tin credit API: {error_msg}")
+            messagebox.showerror("Lỗi", f"Không thể lấy thông tin credit API: {error_msg}")
             
     def verify_api_key(self):
         """
@@ -2400,28 +2524,39 @@ class HeyGenVideoCreatorApp:
                                 quota_data = quota_response["data"]
                                 
                                 # Kiểm tra các định dạng phản hồi có thể có
-                                remaining_seconds = None
+                                remaining_quota = None
                                 if "remaining_quota" in quota_data:
-                                    remaining_seconds = quota_data["remaining_quota"]
+                                    remaining_quota = quota_data["remaining_quota"]
                                 elif "remaining_tokens" in quota_data:
-                                    remaining_seconds = quota_data["remaining_tokens"]
+                                    remaining_quota = quota_data["remaining_tokens"]
                                 elif "quota" in quota_data and "remaining" in quota_data["quota"]:
-                                    remaining_seconds = quota_data["quota"]["remaining"]
+                                    remaining_quota = quota_data["quota"]["remaining"]
                                 
                                 # In ra thông tin debug
                                 print(f"Phản hồi quota: {json.dumps(quota_response)}")
-                                print(f"Remaining seconds: {remaining_seconds}")
+                                print(f"Remaining quota: {remaining_quota}")
                                 
-                                # Định dạng thời gian còn lại
-                                if remaining_seconds is not None and isinstance(remaining_seconds, (int, float)):
-                                    # Định dạng hiển thị HH:MM:SS hoặc MM:SS tùy thuộc vào thời gian
-                                    self.remaining_time_format = self.format_remaining_time(remaining_seconds)
+                                # Tính toán số credit và thời lượng tối đa
+                                if remaining_quota is not None and isinstance(remaining_quota, (int, float)):
+                                    credits, max_duration_minutes = self.calculate_credits_from_quota(remaining_quota)
+                                    
+                                    # Định dạng thông tin
+                                    credits_info = self.format_credits_info(credits, max_duration_minutes)
+                                    
+                                    # Chuyển đổi thời lượng tối đa thành giây
+                                    max_duration_seconds = max_duration_minutes * 60 if max_duration_minutes is not None else None
+                                    
+                                    # Định dạng thời gian tối đa
+                                    if max_duration_seconds is not None:
+                                        self.remaining_time_format = self.format_remaining_time(max_duration_seconds)
+                                    else:
+                                        self.remaining_time_format = None
                                     
                                     # Hiển thị trong trạng thái
                                     self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
                                     
                                     # Hiển thị thông báo với số token còn lại
-                                    messagebox.showinfo("Thành công", f"API Key hợp lệ!\nTìm thấy {avatar_count} avatars\nThời gian còn lại: {self.remaining_time_format}")
+                                    messagebox.showinfo("Thành công", f"API Key hợp lệ!\nTìm thấy {avatar_count} avatars\nCredit còn lại: {credits_info}")
                                     return True
                         except Exception as e:
                             print(f"Lỗi khi xử lý thông tin quota: {e}")
@@ -2429,13 +2564,13 @@ class HeyGenVideoCreatorApp:
                         # Nếu không lấy được thông tin quota hoặc có lỗi
                         self.remaining_time_format = None
                         self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
-                        messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars\n(Không thể lấy thông tin token)")
+                        messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars\n(Không thể lấy thông tin credit)")
                         return True
                     else:
                         self.remaining_time_format = None
                         self.update_status("API Key hợp lệ")
                         messagebox.showinfo("Thành công", "API Key hợp lệ!")
-                        return True
+                    return True
                 except Exception as e:
                     self.remaining_time_format = None
                     self.update_status(f"API Key hợp lệ, nhưng có lỗi khi phân tích phản hồi: {e}")
