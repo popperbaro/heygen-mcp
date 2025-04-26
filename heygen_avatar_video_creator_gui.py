@@ -19,6 +19,10 @@ WINDOW_CONFIG_FILE = os.path.join(CONFIG_DIR, "window_config.json")
 SELECTED_AVATAR_FILE = os.path.join(CONFIG_DIR, "selected_avatar.txt")
 PROXY_CONFIG_FILE = os.path.join(CONFIG_DIR, "proxy_config.json")
 DOWNLOAD_DIR_FILE = os.path.join(CONFIG_DIR, "download_dir.txt")
+INPUT_DIR_FILE = os.path.join(CONFIG_DIR, "input_dir.txt")
+
+# Đường dẫn mặc định cho thư mục đầu vào
+DEFAULT_INPUT_DIR = "G:\\Work\\MMO\\MP3"
 
 # Đảm bảo thư mục cấu hình tồn tại
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -29,7 +33,7 @@ class HeyGenClient:
     """
     
     BASE_URL = "https://api.heygen.com"
-    API_KEY = "OTJmNzE4N2EwZmJkNGY4ZDkzY2VmNTc4NmJlMDlkYmQtMTc0NTM0MjE3Mg=="
+    API_KEY = "MDViZWM5N2ZhMTdmNDQzOTk0M2MwNjIzM2Q5ODYwZWMtMTc0NTYwNDEzMw=="
     
     def __init__(self, api_key: Optional[str] = None, proxy_settings: Optional[Dict[str, str]] = None):
         """
@@ -389,10 +393,14 @@ class HeyGenVideoCreatorApp:
         # Đọc cấu hình proxy từ file
         self.proxy_settings = self.load_proxy_config()
         
-        # Đọc API key từ file (nếu có)
+        # Đọc API key từ file (nếu có) và ưu tiên sử dụng
         api_key = self.load_api_key()
         
-        # Khởi tạo client với proxy
+        # Nếu người dùng đã lưu API key, cũng cập nhật API_KEY mặc định của class HeyGenClient
+        if api_key == "MDViZWM5N2ZhMTdmNDQzOTk0M2MwNjIzM2Q5ODYwZWMtMTc0NTYwNDEzMw==":
+            HeyGenClient.API_KEY = api_key
+        
+        # Khởi tạo client với API key từ file và proxy
         self.client = HeyGenClient(api_key, self.proxy_settings)
         self.avatars = []
         
@@ -409,12 +417,18 @@ class HeyGenVideoCreatorApp:
         # Khởi tạo thư mục tải về mặc định
         self.download_dir = self.load_download_dir()
         
+        # Khởi tạo thư mục đầu vào mặc định
+        self.input_dir = self.load_input_dir()
+        
         # Biến để theo dõi các video đang được tạo
         self.processing_videos = {}
         
         # Biến cho chức năng tìm kiếm
         self.search_var = StringVar()
         self.search_var.trace_add("write", self.filter_avatars)
+        
+        # Biến lưu trữ thời gian còn lại
+        self.remaining_time_format = None
         
         # Tạo giao diện
         self.create_ui()
@@ -533,6 +547,11 @@ class HeyGenVideoCreatorApp:
         # Lưu cấu hình cửa sổ
         self.save_window_config()
         
+        # Lưu API key hiện tại
+        api_key = self.api_key_var.get().strip()
+        if api_key:
+            self.save_api_key(api_key)
+        
         # Lưu avatar đã chọn
         if self.selected_avatar_id:
             self.save_selected_avatar(self.selected_avatar_id)
@@ -540,6 +559,10 @@ class HeyGenVideoCreatorApp:
         # Lưu thư mục tải về mặc định
         if self.download_dir:
             self.save_download_dir(self.download_dir)
+            
+        # Lưu thư mục đầu vào mặc định
+        if self.input_dir:
+            self.save_input_dir(self.input_dir)
             
         self.root.destroy()
     
@@ -783,13 +806,51 @@ class HeyGenVideoCreatorApp:
             print(f"Đã lưu thư mục tải về mặc định: {download_dir}")
         except Exception as e:
             print(f"Lỗi khi lưu thư mục tải về mặc định: {e}")
-
+    
+    def load_input_dir(self):
+        """Đọc thư mục đầu vào mặc định từ file nếu có"""
+        try:
+            if os.path.exists(INPUT_DIR_FILE):
+                with open(INPUT_DIR_FILE, 'r') as f:
+                    input_dir = f.read().strip()
+                    if input_dir and os.path.exists(input_dir) and os.path.isdir(input_dir):
+                        print(f"Đã tải thư mục đầu vào mặc định: {input_dir}")
+                        return input_dir
+        except Exception as e:
+            print(f"Lỗi khi đọc thư mục đầu vào mặc định: {e}")
+        
+        # Nếu không có hoặc không hợp lệ, trả về thư mục mặc định
+        if os.path.exists(DEFAULT_INPUT_DIR) and os.path.isdir(DEFAULT_INPUT_DIR):
+            return DEFAULT_INPUT_DIR
+                
+        # Nếu thư mục mặc định không tồn tại, trả về thư mục Documents
+        default_dirs = [
+            os.path.join(os.path.expanduser("~"), "Documents"),
+            os.path.expanduser("~")
+        ]
+        
+        for dir_path in default_dirs:
+            if os.path.exists(dir_path) and os.path.isdir(dir_path):
+                return dir_path
+                
+        return None
+    
+    def save_input_dir(self, input_dir):
+        """Lưu thư mục đầu vào mặc định vào file"""
+        try:
+            with open(INPUT_DIR_FILE, 'w') as f:
+                f.write(input_dir)
+            print(f"Đã lưu thư mục đầu vào mặc định: {input_dir}")
+        except Exception as e:
+            print(f"Lỗi khi lưu thư mục đầu vào mặc định: {e}")
+    
     def create_tab_content(self, parent_frame):
         # API Key
         api_frame = ttk.LabelFrame(parent_frame, text="API Key", padding="5")
         api_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.api_key_var = tk.StringVar(value=self.client.API_KEY)
+        # Sử dụng API key từ client.api_key thay vì client.API_KEY
+        self.api_key_var = tk.StringVar(value=self.client.api_key)
         ttk.Label(api_frame, text="API Key:").pack(side=tk.LEFT, padx=5)
         ttk.Entry(api_frame, textvariable=self.api_key_var, width=50).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
@@ -798,6 +859,7 @@ class HeyGenVideoCreatorApp:
         
         ttk.Button(api_buttons_frame, text="Cập nhật", command=self.update_api_key).pack(side=tk.LEFT, padx=5)
         ttk.Button(api_buttons_frame, text="Kiểm tra", command=self.verify_api_key).pack(side=tk.LEFT, padx=5)
+        ttk.Button(api_buttons_frame, text="Kiểm tra token", command=self.check_remaining_quota).pack(side=tk.LEFT, padx=5)
         
         # Frame cho danh sách avatars
         avatars_frame = ttk.LabelFrame(parent_frame, text="Danh sách Avatars", padding="5")
@@ -990,8 +1052,13 @@ class HeyGenVideoCreatorApp:
     def update_api_key(self):
         api_key = self.api_key_var.get().strip()
         if api_key:
-            self.client.API_KEY = api_key  # Cập nhật API_KEY trong client
-            self.client.api_key = api_key  # Cập nhật api_key trong client
+            # Cập nhật API key trong instance của client
+            self.client.api_key = api_key
+            
+            # Nếu đây là API key của người dùng (API key đặc biệt đã định sẵn), cũng cập nhật class constant
+            if api_key == "MDViZWM5N2ZhMTdmNDQzOTk0M2MwNjIzM2Q5ODYwZWMtMTc0NTYwNDEzMw==":
+                HeyGenClient.API_KEY = api_key
+                
             # Cập nhật headers với API key mới
             self.client.headers = {
                 "accept": "application/json",
@@ -1023,46 +1090,59 @@ class HeyGenVideoCreatorApp:
                     data = response.json()
                     if "data" in data:
                         avatar_count = len(data["data"]["avatars"]) if "avatars" in data["data"] else len(data["data"])
-                        self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
                         
                         # Lấy thông tin về số token còn lại
                         quota_response = self.client.get_remaining_quota()
                         
-                        if "error" not in quota_response:
-                            # Xử lý phản hồi để lấy thông tin quota
-                            remaining_tokens = "Không xác định"
-                            
-                            # Kiểm tra cấu trúc phản hồi có chứa thông tin quota hay không
-                            if "data" in quota_response:
+                        try:
+                            # Kiểm tra nếu error là None hoặc null (sẽ được chuyển thành None trong Python)
+                            if quota_response.get("error") is None and "data" in quota_response:
                                 quota_data = quota_response["data"]
                                 
                                 # Kiểm tra các định dạng phản hồi có thể có
+                                remaining_seconds = None
                                 if "remaining_quota" in quota_data:
-                                    remaining_tokens = quota_data["remaining_quota"]
+                                    remaining_seconds = quota_data["remaining_quota"]
                                 elif "remaining_tokens" in quota_data:
-                                    remaining_tokens = quota_data["remaining_tokens"]
+                                    remaining_seconds = quota_data["remaining_tokens"]
                                 elif "quota" in quota_data and "remaining" in quota_data["quota"]:
-                                    remaining_tokens = quota_data["quota"]["remaining"]
+                                    remaining_seconds = quota_data["quota"]["remaining"]
                                 
-                                # Định dạng lại số token nếu là số
-                                if isinstance(remaining_tokens, (int, float)):
-                                    remaining_tokens = "{:,}".format(remaining_tokens)
-                            
-                            # Hiển thị thông báo với số token còn lại
-                            messagebox.showinfo("Thành công", f"API Key hợp lệ!\nTìm thấy {avatar_count} avatars\nSố token còn lại: {remaining_tokens}")
-                        else:
-                            # Nếu không lấy được thông tin quota, chỉ hiển thị thông báo về avatars
-                            messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars\n(Không thể lấy thông tin token)")
+                                # In ra thông tin debug
+                                print(f"Phản hồi quota: {json.dumps(quota_response)}")
+                                print(f"Remaining seconds: {remaining_seconds}")
+                                
+                                # Định dạng thời gian còn lại
+                                if remaining_seconds is not None and isinstance(remaining_seconds, (int, float)):
+                                    # Định dạng hiển thị HH:MM:SS hoặc MM:SS tùy thuộc vào thời gian
+                                    self.remaining_time_format = self.format_remaining_time(remaining_seconds)
+                                    
+                                    # Hiển thị trong trạng thái
+                                    self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
+                                    
+                                    # Hiển thị thông báo với số token còn lại
+                                    messagebox.showinfo("Thành công", f"API Key hợp lệ!\nTìm thấy {avatar_count} avatars\nThời gian còn lại: {self.remaining_time_format}")
+                                    return True
+                        except Exception as e:
+                            print(f"Lỗi khi xử lý thông tin quota: {e}")
                         
+                        # Nếu không lấy được thông tin quota hoặc có lỗi
+                        self.remaining_time_format = None
+                        self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
+                        messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars\n(Không thể lấy thông tin token)")
+                        return True
                     else:
+                        self.remaining_time_format = None
                         self.update_status("API Key hợp lệ")
                         messagebox.showinfo("Thành công", "API Key hợp lệ!")
-                    return True
+                        return True
                 except Exception as e:
+                    self.remaining_time_format = None
                     self.update_status(f"API Key hợp lệ, nhưng có lỗi khi phân tích phản hồi: {e}")
                     messagebox.showinfo("Thành công", "API Key hợp lệ!")
                     return True
             elif response.status_code == 401:
+                self.remaining_time_format = None
                 self.update_status("API Key không hợp lệ (401 Unauthorized)")
                 messagebox.showerror("Lỗi", "API Key không hợp lệ!")
                 return False
@@ -1075,10 +1155,12 @@ class HeyGenVideoCreatorApp:
                     if response.text:
                         error_text += f", Phản hồi: {response.text[:200]}..."
                 
+                self.remaining_time_format = None
                 self.update_status(f"Lỗi khi kiểm tra API Key ({error_text})")
                 messagebox.showerror("Lỗi", f"Không thể kiểm tra API Key.\n{error_text}")
                 return False
         except Exception as e:
+            self.remaining_time_format = None
             self.update_status(f"Lỗi khi kiểm tra API Key: {e}")
             messagebox.showerror("Lỗi", f"Lỗi kết nối khi kiểm tra API Key: {e}")
             return False
@@ -1258,7 +1340,13 @@ class HeyGenVideoCreatorApp:
         return False
         
     def update_status(self, message):
-        self.status_var.set(message)
+        # Nếu có thông tin về thời gian còn lại, hiển thị kèm theo
+        if hasattr(self, 'remaining_time_format') and self.remaining_time_format:
+            status_text = f"{message} | Thời gian còn lại: {self.remaining_time_format}"
+        else:
+            status_text = message
+            
+        self.status_var.set(status_text)
         print(message)
     
     def copy_result_url(self):
@@ -1390,17 +1478,23 @@ class HeyGenVideoCreatorApp:
     def select_audio_file(self):
         file_paths = filedialog.askopenfilenames(
             title="Chọn file audio",
-            filetypes=[("Audio Files", "*.mp3 *.wav *.ogg *.m4a")]
+            filetypes=[("Audio Files", "*.mp3 *.wav *.ogg *.m4a")],
+            initialdir=self.input_dir if self.input_dir else None
         )
         if file_paths:
             # Lưu danh sách file được chọn
             self.audio_file_paths = list(file_paths)
             
+            # Lưu thư mục chứa file đầu tiên được chọn để sử dụng cho lần sau
+            first_file = self.audio_file_paths[0]
+            self.input_dir = os.path.dirname(first_file)
+            self.save_input_dir(self.input_dir)
+            
             # Hiển thị file đầu tiên trong trường nhập liệu
             self.audio_file_path = self.audio_file_paths[0]
             self.audio_file_var.set(f"Đã chọn {len(self.audio_file_paths)} file audio")
             
-            self.update_status(f"Đã chọn {len(self.audio_file_paths)} file audio")
+            self.update_status(f"Đã chọn {len(self.audio_file_paths)} file audio từ thư mục {self.input_dir}")
             self.upload_btn.configure(state="normal")
             
             # Reset audio asset ID khi chọn file mới
@@ -2198,6 +2292,178 @@ class HeyGenVideoCreatorApp:
                 # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
                 if not self.processing_videos:
                     self.create_btn.configure(state="normal")
+
+    def format_remaining_time(self, seconds):
+        """
+        Định dạng thời gian còn lại dưới dạng HH:MM:SS hoặc MM:SS
+        
+        Args:
+            seconds: Số giây còn lại
+            
+        Returns:
+            Chuỗi định dạng "HH:MM:SS" nếu lớn hơn 60 phút, hoặc "MM:SS" nếu không
+        """
+        if seconds is None:
+            return None
+            
+        # Chuyển đổi thành giờ, phút, giây
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        
+        # Nếu có giờ, hiển thị định dạng HH:MM:SS
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        else:
+            # Không có giờ, hiển thị định dạng MM:SS
+            return f"{minutes:02d}:{secs:02d}"
+            
+    def check_remaining_quota(self):
+        """
+        Kiểm tra và hiển thị thông tin về số token còn lại
+        """
+        self.update_status("Đang kiểm tra số token còn lại...")
+        self.root.update()
+        
+        # Lấy thông tin quota
+        quota_response = self.client.get_remaining_quota()
+        
+        try:
+            # Xử lý phản hồi để lấy thông tin quota
+            remaining_seconds = None
+            
+            # Kiểm tra nếu error là None hoặc null (sẽ được chuyển thành None trong Python)
+            if quota_response.get("error") is None and "data" in quota_response:
+                quota_data = quota_response["data"]
+                
+                # Kiểm tra các định dạng phản hồi có thể có
+                if "remaining_quota" in quota_data:
+                    remaining_seconds = quota_data["remaining_quota"]
+                elif "remaining_tokens" in quota_data:
+                    remaining_seconds = quota_data["remaining_tokens"]
+                elif "quota" in quota_data and "remaining" in quota_data["quota"]:
+                    remaining_seconds = quota_data["quota"]["remaining"]
+                
+                # In ra thông tin debug
+                print(f"Phản hồi quota: {json.dumps(quota_response)}")
+                print(f"Remaining seconds: {remaining_seconds}")
+                
+                # Định dạng thời gian còn lại
+                if remaining_seconds is not None and isinstance(remaining_seconds, (int, float)):
+                    # Định dạng hiển thị HH:MM:SS hoặc MM:SS tùy thuộc vào thời gian
+                    self.remaining_time_format = self.format_remaining_time(remaining_seconds)
+                    
+                    # Hiển thị trong trạng thái
+                    self.update_status("Đã cập nhật thông tin token")
+                    
+                    # Hiển thị thông báo
+                    messagebox.showinfo("Thông tin token", f"Thời gian còn lại: {self.remaining_time_format}")
+                    return
+            
+            # Nếu không lấy được thông tin quota
+            self.remaining_time_format = None
+            self.update_status("Không thể lấy thông tin về số token còn lại")
+            messagebox.showinfo("Thông tin token", "Không thể lấy thông tin về số token còn lại")
+            
+        except Exception as e:
+            error_msg = str(e)
+            self.remaining_time_format = None
+            self.update_status(f"Không thể lấy thông tin token: {error_msg}")
+            messagebox.showerror("Lỗi", f"Không thể lấy thông tin token: {error_msg}")
+            
+    def verify_api_key(self):
+        """
+        Kiểm tra API Key hiện tại có hợp lệ không bằng cách sử dụng API v2
+        và hiển thị số token còn lại
+        """
+        self.update_status("Đang kiểm tra API Key...")
+        self.root.update()
+        
+        # Sử dụng trực tiếp API v2 để kiểm tra
+        url = f"{self.client.BASE_URL}/v2/avatars"
+        
+        try:
+            response = requests.get(url, headers=self.client.headers, proxies=self.client.proxies)
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    if "data" in data:
+                        avatar_count = len(data["data"]["avatars"]) if "avatars" in data["data"] else len(data["data"])
+                        
+                        # Lấy thông tin về số token còn lại
+                        quota_response = self.client.get_remaining_quota()
+                        
+                        try:
+                            # Kiểm tra nếu error là None hoặc null (sẽ được chuyển thành None trong Python)
+                            if quota_response.get("error") is None and "data" in quota_response:
+                                quota_data = quota_response["data"]
+                                
+                                # Kiểm tra các định dạng phản hồi có thể có
+                                remaining_seconds = None
+                                if "remaining_quota" in quota_data:
+                                    remaining_seconds = quota_data["remaining_quota"]
+                                elif "remaining_tokens" in quota_data:
+                                    remaining_seconds = quota_data["remaining_tokens"]
+                                elif "quota" in quota_data and "remaining" in quota_data["quota"]:
+                                    remaining_seconds = quota_data["quota"]["remaining"]
+                                
+                                # In ra thông tin debug
+                                print(f"Phản hồi quota: {json.dumps(quota_response)}")
+                                print(f"Remaining seconds: {remaining_seconds}")
+                                
+                                # Định dạng thời gian còn lại
+                                if remaining_seconds is not None and isinstance(remaining_seconds, (int, float)):
+                                    # Định dạng hiển thị HH:MM:SS hoặc MM:SS tùy thuộc vào thời gian
+                                    self.remaining_time_format = self.format_remaining_time(remaining_seconds)
+                                    
+                                    # Hiển thị trong trạng thái
+                                    self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
+                                    
+                                    # Hiển thị thông báo với số token còn lại
+                                    messagebox.showinfo("Thành công", f"API Key hợp lệ!\nTìm thấy {avatar_count} avatars\nThời gian còn lại: {self.remaining_time_format}")
+                                    return True
+                        except Exception as e:
+                            print(f"Lỗi khi xử lý thông tin quota: {e}")
+                        
+                        # Nếu không lấy được thông tin quota hoặc có lỗi
+                        self.remaining_time_format = None
+                        self.update_status(f"API Key hợp lệ. Tìm thấy {avatar_count} avatars")
+                        messagebox.showinfo("Thành công", f"API Key hợp lệ! Tìm thấy {avatar_count} avatars\n(Không thể lấy thông tin token)")
+                        return True
+                    else:
+                        self.remaining_time_format = None
+                        self.update_status("API Key hợp lệ")
+                        messagebox.showinfo("Thành công", "API Key hợp lệ!")
+                        return True
+                except Exception as e:
+                    self.remaining_time_format = None
+                    self.update_status(f"API Key hợp lệ, nhưng có lỗi khi phân tích phản hồi: {e}")
+                    messagebox.showinfo("Thành công", "API Key hợp lệ!")
+                    return True
+            elif response.status_code == 401:
+                self.remaining_time_format = None
+                self.update_status("API Key không hợp lệ (401 Unauthorized)")
+                messagebox.showerror("Lỗi", "API Key không hợp lệ!")
+                return False
+            else:
+                error_text = f"Mã trạng thái: {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_text += f", Phản hồi: {json.dumps(error_data)}"
+                except:
+                    if response.text:
+                        error_text += f", Phản hồi: {response.text[:200]}..."
+                
+                self.remaining_time_format = None
+                self.update_status(f"Lỗi khi kiểm tra API Key ({error_text})")
+                messagebox.showerror("Lỗi", f"Không thể kiểm tra API Key.\n{error_text}")
+                return False
+        except Exception as e:
+            self.remaining_time_format = None
+            self.update_status(f"Lỗi khi kiểm tra API Key: {e}")
+            messagebox.showerror("Lỗi", f"Lỗi kết nối khi kiểm tra API Key: {e}")
+            return False
 
 
 if __name__ == "__main__":
