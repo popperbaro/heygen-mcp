@@ -1005,17 +1005,19 @@ class HeyGenVideoCreatorApp:
         videos_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Tạo Treeview để hiển thị videos
-        columns = ("id", "status", "created_at", "type")
+        columns = ("id", "audio_name", "status", "created_at", "type")
         self.videos_tree = ttk.Treeview(videos_frame, columns=columns, show="headings", selectmode="browse")
         
         # Định nghĩa các tiêu đề cột
         self.videos_tree.heading("id", text="Video ID")
+        self.videos_tree.heading("audio_name", text="Audio Name")
         self.videos_tree.heading("status", text="Trạng thái")
         self.videos_tree.heading("created_at", text="Thời gian tạo")
         self.videos_tree.heading("type", text="Loại")
         
         # Định nghĩa độ rộng cột
         self.videos_tree.column("id", width=180)
+        self.videos_tree.column("audio_name", width=150)
         self.videos_tree.column("status", width=100)
         self.videos_tree.column("created_at", width=150)
         self.videos_tree.column("type", width=100)
@@ -1399,8 +1401,17 @@ class HeyGenVideoCreatorApp:
                     # Chuyển đổi timestamp thành datetime
                     created_date = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at))
                     
+                    # Kiểm tra xem video có tên audio tương ứng không
+                    audio_name = "N/A"
+                    for process_id, process_info in self.processing_videos.items():
+                        if process_id == video_id and 'audio_filename' in process_info:
+                            audio_name = process_info['audio_filename']
+                            break
+                    
+                    # Thêm vào bảng với cột Audio Name
                     self.videos_tree.insert("", tk.END, values=(
                         video_id,
+                        audio_name,
                         status,
                         created_date,
                         video_type
@@ -2073,6 +2084,13 @@ class HeyGenVideoCreatorApp:
                     except:
                         error_msg += f" - {response.text[:200]}..."
                 
+                # Xử lý riêng cho lỗi 502 Bad Gateway và các lỗi kết nối
+                if response.status_code == 502 or response.status_code >= 500:
+                    retry_time = min(10 * (attempt % 6 + 1), 60)  # Tăng dần thời gian thử lại, tối đa 60s
+                    self.update_status(f"Lỗi khi kiểm tra trạng thái: HTTP {response.status_code} - Thử lại sau {retry_time} giây")
+                    self.root.after(retry_time * 1000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
+                    return
+                
                 # Nếu lỗi không phải 404, thử lại sau
                 if response.status_code != 404 and attempt < 3:
                     self.update_status(f"Đang đợi API phản hồi... ({attempt+1}/3)")
@@ -2342,25 +2360,37 @@ class HeyGenVideoCreatorApp:
             except json.JSONDecodeError:
                 # Nếu không thể parse JSON, có thể API đang xử lý, thử lại sau
                 print(f"Không thể parse JSON, đang thử lại sau 5 giây. Response: {response.text[:200]}...")
-                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
+                
+                # Hiển thị thông báo hữu ích cho người dùng
+                if "<html>" in response.text:
+                    err_msg = f"Lỗi khi kiểm tra trạng thái: HTTP {response.status_code} - {response.text[:100]}"
+                    self.update_status(err_msg)
+                    
+                # Tăng thời gian chờ nếu gặp lỗi JSON decode nhiều lần
+                retry_time = min(10 * (attempt % 6 + 1), 60)  # Tăng dần thời gian, tối đa 60s
+                self.root.after(retry_time * 1000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
         except Exception as e:
             error_msg = f"Lỗi khi kiểm tra trạng thái: {str(e)}"
-            print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
+            print(f"Chi tiết lỗi: {error_msg}")
             print(f"Traceback: {traceback.format_exc()}")
             
-            # Nếu có lỗi, thử lại vài lần trước khi bỏ
-            if attempt < 3:
-                self.update_status(f"Lỗi khi kiểm tra ({attempt+1}/3), thử lại sau 5 giây...")
-                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
-            else:
-                self.update_status(error_msg)
-                # Xóa video này khỏi danh sách đang xử lý
-                if video_id in self.processing_videos:
-                    del self.processing_videos[video_id]
+            # Đối với các lỗi kết nối, thử lại sau thay vì hiển thị lỗi cho người dùng
+            if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout, 
+                             requests.exceptions.RequestException)):
+                retry_time = min(15 * (attempt % 4 + 1), 60)  # Tăng dần thời gian, tối đa 60s
+                self.update_status(f"Lỗi kết nối khi kiểm tra trạng thái - Thử lại sau {retry_time} giây")
+                self.root.after(retry_time * 1000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
+                return
                 
-                # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
-                if not self.processing_videos:
-                    self.create_btn.configure(state="normal")
+            # Với các lỗi khác, nếu còn trong giới hạn số lần thử, thử lại sau
+            if attempt < 5:  # Cho phép thử lại vài lần với các lỗi không rõ nguyên nhân
+                self.update_status(f"Lỗi không xác định khi kiểm tra trạng thái - Thử lại sau 10 giây")
+                self.root.after(10000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
+                return
+                
+            # Hiển thị lỗi cho người dùng nếu đã thử nhiều lần không thành công
+            self.update_status(error_msg)
+            messagebox.showerror("Lỗi", error_msg)
     
     def format_remaining_time(self, seconds):
         """
