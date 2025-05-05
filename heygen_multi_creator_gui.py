@@ -577,7 +577,7 @@ class HeyGenMultiCreatorApp(ctk.CTk):
             self.after(0, self._add_video_to_list, tab_index, job_info)
 
             poll_interval = 10
-            max_polls = 60 
+            max_polls = 100 # Tăng từ 60 lên 100 để có timeout 1000 giây
             poll_count = 0
             result_video_url = None
 
@@ -830,13 +830,13 @@ class HeyGenMultiCreatorApp(ctk.CTk):
             self.log(f"Tab {tab_index+1}: Bắt đầu tải video {video_id} về: {save_path}")
             # Start the actual download in another thread
             dl_thread = threading.Thread(target=self._download_video_file_thread, # New dedicated download func
-                                       args=(video_url, save_path, video_id, tab_index),
+                                       args=(video_url, save_path),
                                        daemon=True)
             dl_thread.start()
         else:
             self.log(f"Tab {tab_index+1}: Người dùng đã hủy tải video {video_id}.")
 
-    def _download_video_file_thread(self, video_url, save_path, video_id, tab_index):
+    def _download_video_file_thread(self, video_url, save_path):
          """Dedicated thread for downloading a single video file."""
          log_prefix = f"Thread DL Tab {tab_index + 1} ({video_id}): "
          try:
