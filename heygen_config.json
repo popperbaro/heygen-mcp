@@ -1,0 +1,16 @@
+{
+    "api_keys": [
+        "NDNiMzBjZWQyZjFmNDhmYWJiOTA3N2NjZWQxOWYzYTktMTc0NjM3MTQ5OA==",
+        "NDgwMGQwYTA5YmJlNDk4NWI3YjgyODliZDNlMmIxYjAtMTc0NjQyODEwOQ==",
+        "ZjkzMjdjN2ZhNzYyNGFhYjllMWU3NjA3Y2U1MzgzMzItMTc0NjQyODE5NA==",
+        "OTI4ZWE1M2RiNjljNGE4YThkMWQyMzJjNzE5MmZjYjctMTc0NjQyODI1Mw==",
+        "MTFmZGU3YmE0NTZhNGE4YmFjMWIzYjQ0ZThkN2YxNGYtMTc0NjQyODMxOQ=="
+    ],
+    "avatar_id": "Conrad_standing_house_front",
+    "output_dir": "G:/Downloads",
+    "proxy": {
+        "http": "",
+        "https": ""
+    },
+    "window_geometry": "850x818+372+122"
+}
