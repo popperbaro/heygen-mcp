@@ -1005,19 +1005,29 @@ class HeyGenVideoCreatorApp:
         videos_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Tạo Treeview để hiển thị videos
+<<<<<<< HEAD
         columns = ("id", "audio_name", "status", "created_at", "type")
+=======
+        columns = ("id", "status", "created_at", "type")
+>>>>>>> b17c438c4225d19dc8edd19e9fc8d6d19961bb19
         self.videos_tree = ttk.Treeview(videos_frame, columns=columns, show="headings", selectmode="browse")
         
         # Định nghĩa các tiêu đề cột
         self.videos_tree.heading("id", text="Video ID")
+<<<<<<< HEAD
         self.videos_tree.heading("audio_name", text="Audio Name")
+=======
+>>>>>>> b17c438c4225d19dc8edd19e9fc8d6d19961bb19
         self.videos_tree.heading("status", text="Trạng thái")
         self.videos_tree.heading("created_at", text="Thời gian tạo")
         self.videos_tree.heading("type", text="Loại")
         
         # Định nghĩa độ rộng cột
         self.videos_tree.column("id", width=180)
+<<<<<<< HEAD
         self.videos_tree.column("audio_name", width=150)
+=======
+>>>>>>> b17c438c4225d19dc8edd19e9fc8d6d19961bb19
         self.videos_tree.column("status", width=100)
         self.videos_tree.column("created_at", width=150)
         self.videos_tree.column("type", width=100)
@@ -1401,6 +1411,7 @@ class HeyGenVideoCreatorApp:
                     # Chuyển đổi timestamp thành datetime
                     created_date = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at))
                     
+<<<<<<< HEAD
                     # Kiểm tra xem video có tên audio tương ứng không
                     audio_name = "N/A"
                     for process_id, process_info in self.processing_videos.items():
@@ -1412,6 +1423,10 @@ class HeyGenVideoCreatorApp:
                     self.videos_tree.insert("", tk.END, values=(
                         video_id,
                         audio_name,
+=======
+                    self.videos_tree.insert("", tk.END, values=(
+                        video_id,
+>>>>>>> b17c438c4225d19dc8edd19e9fc8d6d19961bb19
                         status,
                         created_date,
                         video_type
@@ -2084,6 +2099,7 @@ class HeyGenVideoCreatorApp:
                     except:
                         error_msg += f" - {response.text[:200]}..."
                 
+<<<<<<< HEAD
                 # Xử lý riêng cho lỗi 502 Bad Gateway và các lỗi kết nối
                 if response.status_code == 502 or response.status_code >= 500:
                     retry_time = min(10 * (attempt % 6 + 1), 60)  # Tăng dần thời gian thử lại, tối đa 60s
@@ -2091,6 +2107,8 @@ class HeyGenVideoCreatorApp:
                     self.root.after(retry_time * 1000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
                     return
                 
+=======
+>>>>>>> b17c438c4225d19dc8edd19e9fc8d6d19961bb19
                 # Nếu lỗi không phải 404, thử lại sau
                 if response.status_code != 404 and attempt < 3:
                     self.update_status(f"Đang đợi API phản hồi... ({attempt+1}/3)")
@@ -2360,6 +2378,7 @@ class HeyGenVideoCreatorApp:
             except json.JSONDecodeError:
                 # Nếu không thể parse JSON, có thể API đang xử lý, thử lại sau
                 print(f"Không thể parse JSON, đang thử lại sau 5 giây. Response: {response.text[:200]}...")
+<<<<<<< HEAD
                 
                 # Hiển thị thông báo hữu ích cho người dùng
                 if "<html>" in response.text:
@@ -2391,6 +2410,27 @@ class HeyGenVideoCreatorApp:
             # Hiển thị lỗi cho người dùng nếu đã thử nhiều lần không thành công
             self.update_status(error_msg)
             messagebox.showerror("Lỗi", error_msg)
+=======
+                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
+        except Exception as e:
+            error_msg = f"Lỗi khi kiểm tra trạng thái: {str(e)}"
+            print(f"Lỗi chi tiết: {str(e)}, {type(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            
+            # Nếu có lỗi, thử lại vài lần trước khi bỏ
+            if attempt < 3:
+                self.update_status(f"Lỗi khi kiểm tra ({attempt+1}/3), thử lại sau 5 giây...")
+                self.root.after(5000, lambda: self.check_video_status(video_id, attempt+1, max_attempts, audio_filename))
+            else:
+                self.update_status(error_msg)
+                # Xóa video này khỏi danh sách đang xử lý
+                if video_id in self.processing_videos:
+                    del self.processing_videos[video_id]
+                
+                # Kích hoạt lại nút tạo nếu không còn video nào đang xử lý
+                if not self.processing_videos:
+                    self.create_btn.configure(state="normal")
+>>>>>>> b17c438c4225d19dc8edd19e9fc8d6d19961bb19
     
     def format_remaining_time(self, seconds):
         """
