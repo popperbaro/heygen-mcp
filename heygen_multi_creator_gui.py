@@ -830,27 +830,27 @@ class HeyGenMultiCreatorApp(ctk.CTk):
             self.log(f"Tab {tab_index+1}: Bắt đầu tải video {video_id} về: {save_path}")
             # Start the actual download in another thread
             dl_thread = threading.Thread(target=self._download_video_file_thread, # New dedicated download func
-                                       args=(video_url, save_path),
+                                       args=(video_url, save_path, tab_index, video_id),
                                        daemon=True)
             dl_thread.start()
         else:
             self.log(f"Tab {tab_index+1}: Người dùng đã hủy tải video {video_id}.")
 
-    def _download_video_file_thread(self, video_url, save_path):
-         """Dedicated thread for downloading a single video file."""
-         log_prefix = f"Thread DL Tab {tab_index + 1} ({video_id}): "
-         try:
-             success, message = heygen_api.download_video_file(video_url, save_path)
-             if success:
-                 self.log(f"{log_prefix}{message}")
-                 self.after(0, messagebox.showinfo, f"Thành Công Tab {tab_index + 1}", f"Đã tải video {video_id} thành công!\n{save_path}")
-             else:
-                 self.log(f"{log_prefix}Lỗi tải - {message}")
-                 self.after(0, messagebox.showerror, f"Lỗi Tải Video Tab {tab_index + 1}", f"Không thể tải video {video_id}:\n{message}")
-         except Exception as e:
-             error_msg = f"Lỗi nghiêm trọng khi tải video {video_id}: {e}"
-             self.log(f"{log_prefix}{error_msg}")
-             self.after(0, messagebox.showerror, f"Lỗi Tải Video Tab {tab_index + 1}", error_msg)
+    def _download_video_file_thread(self, video_url, save_path, tab_index=0, video_id="unknown"):
+        """Dedicated thread for downloading a single video file."""
+        log_prefix = f"Thread DL Tab {tab_index + 1} ({video_id}): "
+        try:
+            success, message = heygen_api.download_video_file(video_url, save_path)
+            if success:
+                self.log(f"{log_prefix}{message}")
+                self.after(0, messagebox.showinfo, f"Thành Công Tab {tab_index + 1}", f"Đã tải video {video_id} thành công!\n{save_path}")
+            else:
+                self.log(f"{log_prefix}Lỗi tải - {message}")
+                self.after(0, messagebox.showerror, f"Lỗi Tải Video Tab {tab_index + 1}", f"Không thể tải video {video_id}:\n{message}")
+        except Exception as e:
+            error_msg = f"Lỗi nghiêm trọng khi tải video {video_id}: {e}"
+            self.log(f"{log_prefix}{error_msg}")
+            self.after(0, messagebox.showerror, f"Lỗi Tải Video Tab {tab_index + 1}", error_msg)
 
     def get_selected_video_info(self, tab_index):
          # This needs significant improvement. CTkTextbox isn't ideal for selection.
@@ -1074,25 +1074,10 @@ class HeyGenMultiCreatorApp(ctk.CTk):
         if save_path:
             self.log(f"Bắt đầu tải video cho Tab {tab_index+1} về: {save_path}")
             # Run download in a thread
-            thread = threading.Thread(target=self._download_video_thread,
-                                      args=(video_url, save_path),
+            thread = threading.Thread(target=self._download_video_file_thread,
+                                      args=(video_url, save_path, tab_index, video_url.split('/')[-1]),
                                       daemon=True)
             thread.start()
-
-    def _download_video_thread(self, video_url, save_path):
-        """Calls the download function from heygen_api in a thread."""
-        try:
-            success, message = heygen_api.download_video_file(video_url, save_path)
-            if success:
-                self.log(message)
-                self.after(0, messagebox.showinfo, "Thành công", f"Đã tải video thành công!\n{save_path}")
-            else:
-                self.log(message) # Log the error message
-                self.after(0, messagebox.showerror, "Lỗi Tải Video", message)
-        except Exception as e:
-            error_msg = f"Lỗi nghiêm trọng khi tải video: {e}"
-            self.log(error_msg)
-            self.after(0, messagebox.showerror, "Lỗi Tải Video", error_msg)
 
 if __name__ == "__main__":
     app = HeyGenMultiCreatorApp()
