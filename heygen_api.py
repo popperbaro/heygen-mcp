@@ -195,7 +195,7 @@ def generate_heygen_video(api_key: str, audio_input: str, avatar_id: str, output
     try:
         print(f"[API REQUEST] POST {generate_url}")
         # print(f"[API REQUEST] Payload: {json.dumps(payload, indent=2)}") # Uncomment for debugging payload
-        response = requests.post(generate_url, headers=headers, json=payload, proxies=proxies, timeout=30)
+        response = requests.post(generate_url, headers=headers, json=payload, proxies=proxies, timeout=60)
 
         print(f"[API RESPONSE] Status Code: {response.status_code}")
         # print(f"[API RESPONSE] Body: {response.text[:500]}...") # Uncomment for debugging response
@@ -253,7 +253,7 @@ def check_video_status(api_key: str, video_id: str, proxies: Optional[Dict[str, 
 
     try:
         # print(f"[API REQUEST] GET {status_url}") # Có thể bật để debug nhiều hơn
-        response = requests.get(status_url, headers=headers, proxies=proxies, timeout=30)
+        response = requests.get(status_url, headers=headers, proxies=proxies, timeout=60)
         response.raise_for_status()
         data = response.json()
 
@@ -319,7 +319,7 @@ def fetch_avatar_list(api_key: str, proxies: Optional[Dict[str, str]] = None) ->
         print(f"[API REQUEST] Headers: {log_msg_headers}")
         print(f"[API REQUEST] Proxies: {proxies}")
 
-        response = requests.get(list_url, headers=headers, proxies=proxies, timeout=30)
+        response = requests.get(list_url, headers=headers, proxies=proxies, timeout=60)
         response.raise_for_status()
         data = response.json()
 
@@ -369,7 +369,7 @@ def fetch_avatar_list(api_key: str, proxies: Optional[Dict[str, str]] = None) ->
          except: detail = e.response.text
          error_msg = f"Lỗi HTTP từ API: {e.response.status_code} - {detail[:200]}..."
     except requests.exceptions.Timeout:
-        error_msg = "Yêu cầu tới API HeyGen bị timeout (quá 30 giây)."
+        error_msg = "Yêu cầu tới API HeyGen bị timeout (quá 60 giây)."
     except requests.exceptions.RequestException as e:
         error_msg = f"Lỗi mạng hoặc kết nối khi gọi API: {e}"
     except json.JSONDecodeError as e_json:
@@ -413,7 +413,7 @@ def get_remaining_quota(api_key: str, proxies: Optional[Dict[str, str]] = None) 
     print(f"[API QUOTA] GET {url} for key ...{api_key[-4:]}")
 
     try:
-        response = requests.get(url, headers=headers, proxies=proxies, timeout=30)
+        response = requests.get(url, headers=headers, proxies=proxies, timeout=60)
 
         print(f"[API QUOTA] Response Status: {response.status_code}")
         response.raise_for_status() # Raise HTTPError for bad status codes (4xx or 5xx)

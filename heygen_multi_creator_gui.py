@@ -551,7 +551,7 @@ class HeyGenMultiCreatorApp(ctk.CTk):
         thread.start()
 
     def _generate_and_poll_video(self, tab_index, api_key, audio_input, avatar_id, output_dir):
-        """Handles submitting video generation, polling, and auto-downloading."""
+        """Thread function to generate and poll status of a video."""
         video_id = None
         listbox_widget = self.tab_generation_widgets[tab_index].get('video_scrollable_list')
         
@@ -571,82 +571,130 @@ class HeyGenMultiCreatorApp(ctk.CTk):
         try:
             self.log(f"Thread Tab {tab_index+1}: Bắt đầu xử lý tạo video...")
             proxies = self._get_current_proxies()
-            video_id = heygen_api.generate_heygen_video(api_key, audio_input, avatar_id, output_dir, proxies)
-            self.log(f"Thread Tab {tab_index+1}: Đã gửi yêu cầu tạo video. Video ID: {video_id}")
-            job_info = f"{video_id} - Audio: {display_name} - (Pending)"
-            self.after(0, self._add_video_to_list, tab_index, job_info)
+            
+            # Thêm cơ chế thử lại cho phần tạo video
+            max_retries = 3  # Số lần thử lại tối đa
+            retry_count = 0
+            last_error = None
+            
+            # Thử gửi yêu cầu tạo video với cơ chế thử lại
+            while retry_count <= max_retries:
+                try:
+                    video_id = heygen_api.generate_heygen_video(api_key, audio_input, avatar_id, output_dir, proxies)
+                    self.log(f"Thread Tab {tab_index+1}: Đã gửi yêu cầu tạo video. Video ID: {video_id}")
+                    job_info = f"{video_id} - Audio: {display_name} - (Pending)"
+                    self.after(0, self._add_video_to_list, tab_index, job_info)
+                    break  # Nếu thành công, thoát khỏi vòng lặp retry
+                except requests.exceptions.Timeout as timeout_error:
+                    retry_count += 1
+                    last_error = timeout_error
+                    if retry_count <= max_retries:
+                        self.log(f"Thread Tab {tab_index+1}: Timeout khi gửi yêu cầu tạo video. Thử lại lần {retry_count}/{max_retries} sau 10 giây...")
+                        time.sleep(10)  # Chờ 10 giây trước khi thử lại
+                    else:
+                        self.log(f"Thread Tab {tab_index+1}: Đã thử lại {max_retries} lần nhưng vẫn bị timeout.")
+                        raise  # Re-raise lỗi sau khi đã thử lại đủ số lần
+                except Exception as e:
+                    # Đối với các lỗi khác, không thử lại
+                    self.log(f"Thread Tab {tab_index+1}: Lỗi khi gửi yêu cầu tạo video: {e}")
+                    raise
+            
+            if not video_id:
+                # Nếu vẫn không tạo được video_id sau khi thử lại
+                raise ValueError(f"Không thể tạo video sau {max_retries} lần thử: {last_error}")
 
             poll_interval = 10
             max_polls = 100 # Tăng từ 60 lên 100 để có timeout 1000 giây
             poll_count = 0
             result_video_url = None
+            max_retries = 3 # Số lần thử lại tối đa khi gặp lỗi timeout
+            retry_count = 0
 
             while poll_count < max_polls:
                 poll_count += 1
-                status_data = heygen_api.check_video_status(api_key, video_id, proxies)
-                current_status = status_data.get("status")
-                self.log(f"Thread Tab {tab_index+1}: Video {video_id} - Trạng thái: {current_status}")
-                status_text = f" ({current_status})"
-                if current_status == "failed":
-                    error_detail = status_data.get("error", {}).get("message", "Unknown error")
-                    status_text = f" (Thất bại: {error_detail})"
-                elif current_status == "completed":
-                    result_video_url = status_data.get("video_url")
-                    status_text = " (Hoàn thành)"
-
-                updated_job_info = f"{video_id} - Audio: {display_name} -{status_text}"
-                self.log(f"Update ListBox (cần cải thiện): {updated_job_info}")
-
-                if current_status == "completed":
-                    self.log(f"Thread Tab {tab_index+1}: Video {video_id} hoàn thành! URL: {result_video_url}")
-                    self.after(0, self._enable_download_button, tab_index, video_id, result_video_url)
+                try:
+                    status_data = heygen_api.check_video_status(api_key, video_id, proxies)
+                    # Reset retry_count khi request thành công
+                    retry_count = 0
                     
-                    # --- Auto Download ---                    
-                    if result_video_url:
-                        self.log(f"Thread Tab {tab_index+1}: Tự động tải video {video_id}...")
+                    current_status = status_data.get("status")
+                    self.log(f"Thread Tab {tab_index+1}: Video {video_id} - Trạng thái: {current_status}")
+                    status_text = f" ({current_status})"
+                    if current_status == "failed":
+                        error_detail = status_data.get("error", {}).get("message", "Unknown error")
+                        status_text = f" (Thất bại: {error_detail})"
+                    elif current_status == "completed":
+                        result_video_url = status_data.get("video_url")
+                        status_text = " (Hoàn thành)"
+
+                    updated_job_info = f"{video_id} - Audio: {display_name} -{status_text}"
+                    self.log(f"Update ListBox (cần cải thiện): {updated_job_info}")
+
+                    if current_status == "completed":
+                        self.log(f"Thread Tab {tab_index+1}: Video {video_id} hoàn thành! URL: {result_video_url}")
+                        self.after(0, self._enable_download_button, tab_index, video_id, result_video_url)
                         
-                        # --- Construct filename based on audio_input ---                        
-                        try:
-                            base_name = ""
-                            if os.path.exists(audio_input) and not audio_input.startswith(('http://', 'https://')):
-                                # It's a local file path
-                                base_name = os.path.splitext(os.path.basename(audio_input))[0]
-                            elif audio_input.startswith(('http://', 'https://')):
-                                # It's a URL, try to parse filename
-                                parsed_path = os.path.basename(urlparse(audio_input).path)
-                                base_name = os.path.splitext(parsed_path)[0]
+                        # --- Auto Download --- 
+                        if result_video_url:
+                            self.log(f"Thread Tab {tab_index+1}: Tự động tải video {video_id}...")
                             
-                            if not base_name:
-                                # Fallback if parsing failed or name is empty
-                                base_name = f"{video_id}_video"
+                            # --- Construct filename based on audio_input ---                        
+                            try:
+                                base_name = ""
+                                if os.path.exists(audio_input) and not audio_input.startswith(('http://', 'https://')):
+                                    # It's a local file path
+                                    base_name = os.path.splitext(os.path.basename(audio_input))[0]
+                                elif audio_input.startswith(('http://', 'https://')):
+                                    # It's a URL, try to parse filename
+                                    parsed_path = os.path.basename(urlparse(audio_input).path)
+                                    base_name = os.path.splitext(parsed_path)[0]
                                 
-                            download_filename_unsafe = f"{base_name}.mp4"
-                            # Ensure filename is safe
-                            download_filename = "".join(c for c in download_filename_unsafe if c.isalnum() or c in ('.', '-', '_')).rstrip()
-                            if not download_filename:
-                                download_filename = f"{video_id}.mp4" # Final fallback
-                                
-                        except Exception as name_ex:
-                             self.log(f"Lỗi xử lý tên file cho video {video_id}: {name_ex}. Dùng ID.")
-                             download_filename = f"{video_id}.mp4"
-                             
-                        save_path = os.path.join(output_dir, download_filename)
-                        self.log(f"Thread Tab {tab_index+1}: Lưu về: {save_path}")
-                        try:
-                            success, message = heygen_api.download_video_file(result_video_url, save_path)
-                            if success:
-                                self.log(f"Thread Tab {tab_index+1}: Tự động tải thành công: {message}")
-                            else:
-                                self.log(f"Thread Tab {tab_index+1}: Lỗi tự động tải: {message}")
-                                # Optionally inform user via main thread if auto-download fails
-                                # self.after(0, messagebox.showwarning, f"Lỗi Tải Tự Động Tab {tab_index+1}", f"Không thể tự động tải video {video_id}:\n{message}")
-                        except Exception as dl_ex:
-                            self.log(f"Thread Tab {tab_index+1}: Lỗi nghiêm trọng khi tự động tải: {dl_ex}")
-                    # --------------------                    
-                    break
-                elif current_status == "failed":
-                    self.log(f"Thread Tab {tab_index+1}: Video {video_id} thất bại.")
-                    break
+                                if not base_name:
+                                    # Fallback if parsing failed or name is empty
+                                    base_name = f"{video_id}_video"
+                                    
+                                download_filename_unsafe = f"{base_name}.mp4"
+                                # Ensure filename is safe
+                                download_filename = "".join(c for c in download_filename_unsafe if c.isalnum() or c in ('.', '-', '_')).rstrip()
+                                if not download_filename:
+                                    download_filename = f"{video_id}.mp4" # Final fallback
+                                    
+                            except Exception as name_ex:
+                                 self.log(f"Lỗi xử lý tên file cho video {video_id}: {name_ex}. Dùng ID.")
+                                 download_filename = f"{video_id}.mp4"
+                                 
+                            save_path = os.path.join(output_dir, download_filename)
+                            self.log(f"Thread Tab {tab_index+1}: Lưu về: {save_path}")
+                            try:
+                                success, message = heygen_api.download_video_file(result_video_url, save_path)
+                                if success:
+                                    self.log(f"Thread Tab {tab_index+1}: Tự động tải thành công: {message}")
+                                else:
+                                    self.log(f"Thread Tab {tab_index+1}: Lỗi tự động tải: {message}")
+                                    # Optionally inform user via main thread if auto-download fails
+                                    # self.after(0, messagebox.showwarning, f"Lỗi Tải Tự Động Tab {tab_index+1}", f"Không thể tự động tải video {video_id}:\n{message}")
+                            except Exception as dl_ex:
+                                self.log(f"Thread Tab {tab_index+1}: Lỗi nghiêm trọng khi tự động tải: {dl_ex}")
+                        # --------------------                    
+                        break
+                    elif current_status == "failed":
+                        self.log(f"Thread Tab {tab_index+1}: Video {video_id} thất bại.")
+                        break
+                except requests.exceptions.Timeout as timeout_error:
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        error_message = f"Thread Tab {tab_index+1}: Timeout khi kiểm tra trạng thái video {video_id}. Thử lại lần {retry_count}/{max_retries} sau 10 giây..."
+                        self.log(error_message)
+                        time.sleep(10)  # Chờ thêm 10 giây trước khi thử lại
+                        continue
+                    else:
+                        raise  # Nếu đã thử lại quá số lần cho phép, raise lỗi để xử lý ở except phía dưới
+                except requests.exceptions.RequestException as req_error:
+                    # Xử lý các lỗi request khác (không phải timeout)
+                    error_message = f"Thread Tab {tab_index+1}: Lỗi kết nối khi kiểm tra trạng thái video {video_id}: {req_error}"
+                    self.log(error_message)
+                    raise
+                
                 time.sleep(poll_interval)
             else:
                 self.log(f"Thread Tab {tab_index+1}: Video {video_id} không hoàn thành sau {max_polls * poll_interval} giây.")
@@ -658,6 +706,14 @@ class HeyGenMultiCreatorApp(ctk.CTk):
              error_message = f"Lỗi tạo video Tab {tab_index+1}: {ve}"
              self.log(error_message)
              self.after(0, messagebox.showerror, f"Lỗi Video Tab {tab_index+1}", error_message)
+        except requests.exceptions.Timeout as timeout_error:
+            # Xử lý riêng lỗi timeout
+            error_message = f"Lỗi timeout khi tạo/theo dõi video Tab {tab_index+1}: {timeout_error}"
+            self.log(error_message)
+            if video_id:
+                updated_job_info = f"{video_id} - Audio: {display_name} - (Lỗi: {timeout_error})"
+                self.log(f"Update ListBox (cần cải thiện): {updated_job_info}")
+            self.after(0, messagebox.showerror, f"Lỗi Timeout Tab {tab_index+1}", f"Kết nối tới máy chủ Heygen bị quá thời gian chờ: {timeout_error}")
         except Exception as e:
             # Bắt các lỗi không mong muốn khác
             error_message = f"Lỗi nghiêm trọng trong quá trình tạo/theo dõi video Tab {tab_index+1}: {e}\n{traceback.format_exc()}"
